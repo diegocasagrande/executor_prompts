@@ -22,7 +22,7 @@ def calcular(execucoes: list[dict]) -> dict:
 
     for e in execucoes:
         fornecedor = e.get("Fornecedor") or "(não informado)"
-        modelo = e.get("Modelo efetivo") or e.get("Modelo solicitado") or "(não informado)"
+        modelo = e.get("Modelo utilizado") or e.get("Modelo solicitado") or "(não informado)"
         resultado = "sucesso" if str(e.get("Status", "")).lower() == "sucesso" else "erro"
 
         por_fornecedor[fornecedor][resultado] += 1

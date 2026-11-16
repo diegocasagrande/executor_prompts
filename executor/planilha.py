@@ -3,7 +3,7 @@
 import re
 import shutil
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -19,14 +19,17 @@ STATUS_PRONTO = "Pronto para executar"
 STATUS_EXECUTADO = "Executado"
 
 COLUNAS_EXECUCOES = [
+    # as cinco primeiras são as da planilha original
+    "Identificador Único",
+    "Texto do Resultado",
+    "Modelo utilizado",
+    "Data da Execução",
+    "Hora da Execução",
+    # colunas de auditoria
     "ID da execução",
-    "ID do prompt",
     "Fornecedor",
     "Modelo solicitado",
-    "Modelo efetivo",
     "ID da resposta",
-    "Data da execução",
-    "Hora da execução",
     "Latência (ms)",
     "Tokens de entrada",
     "Tokens de saída",
@@ -38,7 +41,6 @@ COLUNAS_EXECUCOES = [
     "Status",
     "Mensagem de erro",
     "Nº de tentativas",
-    "Texto da resposta",
     "Dono da API",
     "Final da chave",
     "System prompt",
@@ -46,8 +48,6 @@ COLUNAS_EXECUCOES = [
 
 COLUNAS_MODELOS = ["Fornecedor", "Modelos", "Nome de exibição", "Data da consulta"]
 
-# Layout antigo da aba Execuções (5 colunas), migrado na primeira execução.
-COLUNAS_ANTIGAS = ["identificador único", "texto do resultado", "modelo utilizado", "data da execução", "hora da execução"]
 
 
 # ---------------------------------------------------------------- versões
@@ -146,41 +146,47 @@ def _inferir_fornecedor(modelo: str) -> str:
 
 
 def preparar_execucoes(wb: Workbook) -> None:
-    """Garante o cabeçalho de 23 colunas, migrando linhas do layout antigo de 5 colunas."""
+    """Garante o cabeçalho de 23 colunas, preservando as linhas já existentes.
+
+    As cinco primeiras colunas são as da planilha original, então linhas antigas
+    ficam no mesmo lugar; as colunas de auditoria que faltam são preenchidas com o que é conhecido.
+    """
     ws = _aba(wb, ABA_EXECUCOES)
-    cabecalho = [_texto(ws.cell(1, c).value) for c in range(1, len(COLUNAS_EXECUCOES) + 1)]
-    if cabecalho == COLUNAS_EXECUCOES:
+    largura = max(ws.max_column, len(COLUNAS_EXECUCOES))
+    cabecalho = [_texto(ws.cell(1, c).value) for c in range(1, largura + 1)]
+    if cabecalho[:len(COLUNAS_EXECUCOES)] == COLUNAS_EXECUCOES:
         return
 
-    antigo = [c.lower() for c in cabecalho[:5]] == COLUNAS_ANTIGAS
-    linhas_antigas = []
-    if antigo:
-        for linha in range(2, _ultima_linha_preenchida(ws) + 1):
-            linhas_antigas.append([ws.cell(linha, c).value for c in range(1, 6)])
+    # lê as linhas existentes pelo nome da coluna (sem diferenciar maiúsculas)
+    nomes = {n.lower(): n for n in COLUNAS_EXECUCOES}
+    mapa = {i: nomes[c.lower()] for i, c in enumerate(cabecalho, start=1) if c.lower() in nomes}
+    existentes = []
+    for linha in range(2, _ultima_linha_preenchida(ws) + 1):
+        existentes.append({nome: ws.cell(linha, i).value for i, nome in mapa.items()})
 
-    # limpa a aba inteira e reescreve no novo layout
-    if ws.max_row > 1 or ws.max_column > 1:
+    if ws.max_row:
         ws.delete_rows(1, ws.max_row)
     ws.append(COLUNAS_EXECUCOES)
 
-    for id_prompt, texto, modelo, data, hora in linhas_antigas:
+    for registro in existentes:
+        data = registro.get("Data da Execução")
         if isinstance(data, (datetime, date)):
-            data = data.strftime("%d/%m/%Y")
-        modelo = _texto(modelo)
-        registro = dict.fromkeys(COLUNAS_EXECUCOES, None)
-        registro.update({
+            registro["Data da Execução"] = data.strftime("%d/%m/%Y")
+        hora = registro.get("Hora da Execução")
+        if isinstance(hora, (datetime, time)):
+            registro["Hora da Execução"] = hora.strftime("%H:%M:%S")
+        modelo = _texto(registro.get("Modelo utilizado"))
+        padrao = {
             "ID da execução": f"migrado-{uuid.uuid4()}",
-            "ID do prompt": _texto(id_prompt),
             "Fornecedor": _inferir_fornecedor(modelo),
             "Modelo solicitado": modelo,
-            "Modelo efetivo": modelo,
-            "Data da execução": data,
-            "Hora da execução": _texto(hora),
             "Status": "sucesso",
             "Mensagem de erro": "registro migrado do layout antigo (campos de auditoria não disponíveis)",
-            "Texto da resposta": texto,
-        })
-        ws.append([registro[c] for c in COLUNAS_EXECUCOES])
+        }
+        for nome, valor in padrao.items():
+            if registro.get(nome) in (None, ""):
+                registro[nome] = valor
+        ws.append([registro.get(c) for c in COLUNAS_EXECUCOES])
 
 
 def acrescentar_execucao(wb: Workbook, registro: dict) -> None:
