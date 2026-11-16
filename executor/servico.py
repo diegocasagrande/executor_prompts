@@ -1,0 +1,197 @@
+"""Orquestra a execução: escolhe o que rodar, versiona a planilha, registra e sumariza."""
+
+import threading
+import uuid
+from datetime import datetime
+
+from openpyxl import load_workbook
+
+from executor import config, planilha, sumario
+from executor.provedores import PROVEDORES
+from executor.provedores.base import NOMES, Parametros, Resultado, normaliza_fornecedor
+
+_trava = threading.Lock()  # evita duas execuções criando a mesma versão
+
+
+class ErroDeEntrada(ValueError):
+    pass
+
+
+def _normalizar_selecao(selecao: dict[str, list[str]]) -> tuple[dict[str, list[str]], list[dict]]:
+    """Normaliza nomes de fornecedor e remove os que não têm credencial no .env."""
+    validos, ignorados = {}, []
+    for nome, modelos in selecao.items():
+        fornecedor = normaliza_fornecedor(nome)
+        if not fornecedor:
+            raise ErroDeEntrada(f"Fornecedor desconhecido: {nome!r}. Use gemini, claude ou openai.")
+        if not config.tem_credencial(fornecedor):
+            ignorados.append({"fornecedor": NOMES[fornecedor], "motivo": "sem credencial no .env"})
+            continue
+        validos.setdefault(fornecedor, []).extend(m.strip() for m in (modelos or []) if m and m.strip())
+    return validos, ignorados
+
+
+def _alvos(prompt: dict, selecao: dict[str, list[str]]) -> tuple[list[tuple[str, str]], str]:
+    """Regra: colunas Fornecedor/Modelo da linha definem; a requisição filtra.
+
+    - Fornecedor + Modelo na linha: roda se o fornecedor estiver na requisição e
+      (a requisição não listar modelos para ele, ou listar esse modelo).
+    - Só Fornecedor na linha: roda nos modelos da requisição para esse fornecedor.
+    - Linha sem Fornecedor/Modelo: roda em todos os modelos da requisição.
+    """
+    fornecedor = normaliza_fornecedor(prompt["fornecedor"])
+    modelo = prompt["modelo"]
+
+    if prompt["fornecedor"] and not fornecedor:
+        return [], f"fornecedor {prompt['fornecedor']!r} desconhecido na aba Prompts"
+    if modelo and not fornecedor:
+        return [], "linha tem Modelo mas não tem Fornecedor"
+
+    if fornecedor and modelo:
+        if fornecedor not in selecao:
+            return [], f"{NOMES[fornecedor]} não foi solicitado ou não tem credencial"
+        if selecao[fornecedor] and modelo not in selecao[fornecedor]:
+            return [], f"modelo {modelo!r} não está entre os solicitados para {NOMES[fornecedor]}"
+        return [(fornecedor, modelo)], ""
+
+    if fornecedor:
+        alvos = [(fornecedor, m) for m in selecao.get(fornecedor, [])]
+        return alvos, "" if alvos else f"nenhum modelo de {NOMES[fornecedor]} informado na requisição"
+
+    alvos = [(f, m) for f, modelos in selecao.items() for m in modelos]
+    return alvos, "" if alvos else "linha sem Fornecedor/Modelo e nenhum modelo informado na requisição"
+
+
+def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros) -> dict:
+    agora = datetime.now()
+    return {
+        "ID da execução": str(uuid.uuid4()),
+        "ID do prompt": prompt_id,
+        "Fornecedor": NOMES[fornecedor],
+        "Modelo solicitado": modelo,
+        "Modelo efetivo": r.modelo_efetivo,
+        "ID da resposta": r.id_resposta,
+        "Data da execução": agora.strftime("%d/%m/%Y"),
+        "Hora da execução": agora.strftime("%H:%M:%S"),
+        "Latência (ms)": r.latencia_ms,
+        "Tokens de entrada": r.tokens_entrada,
+        "Tokens de saída": r.tokens_saida,
+        "Tokens de cache": r.tokens_cache,
+        "Total de tokens": r.total_tokens,
+        "Motivo de parada": r.motivo_parada,
+        "Temperatura": r.temperatura_usada,
+        "Máximo de tokens de saída": p.max_tokens,
+        "Status": "sucesso" if r.sucesso else "erro",
+        "Mensagem de erro": r.erro[:2000],
+        "Nº de tentativas": r.tentativas,
+        "Texto da resposta": r.texto,
+        "Dono da API": r.dono_api,
+        "Final da chave": config.final_da_chave(fornecedor),
+        "System prompt": p.system_prompt or "",
+    }
+
+
+def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros: Parametros | None = None) -> dict:
+    p = parametros or Parametros()
+    if repeticoes < 1:
+        raise ErroDeEntrada("repeticoes deve ser >= 1")
+
+    with _trava:
+        selecao, ignorados = _normalizar_selecao(selecao)
+
+        # 1. planeja a partir da última versão, sem alterá-la
+        _, origem = planilha.ultima_versao()
+        wb_origem = load_workbook(origem)
+        prontos = planilha.ler_prompts_prontos(wb_origem)
+        wb_origem.close()
+
+        plano = []
+        for prompt in prontos:
+            alvos, motivo = _alvos(prompt, selecao)
+            if alvos:
+                plano.append((prompt, alvos))
+            else:
+                ignorados.append({"prompt": prompt["id"], "motivo": motivo})
+
+        if not plano:
+            return {
+                "planilha_origem": origem.name,
+                "planilha_gerada": None,
+                "mensagem": "Nada a executar; nenhuma nova versão foi criada.",
+                "execucoes": [],
+                "ignorados": ignorados,
+            }
+
+        # 2. cria a nova versão e grava nela
+        numero, _, destino = planilha.nova_versao()
+        wb = load_workbook(destino)
+        planilha.preparar_execucoes(wb)
+        catalogo = planilha.ler_catalogo(wb)
+        wb.save(destino)
+
+        execucoes = []
+        for prompt, alvos in plano:
+            algum_sucesso = False
+            for fornecedor, modelo in alvos:
+                conhecidos = catalogo.get(NOMES[fornecedor].lower())
+                for _ in range(repeticoes):
+                    if conhecidos and modelo not in conhecidos:
+                        r = Resultado(
+                            erro=f"modelo {modelo!r} não consta na aba Modelos para {NOMES[fornecedor]}; "
+                                 "use o ID exato ou atualize o catálogo",
+                            dono_api=config.dono(fornecedor),
+                            temperatura_usada=p.temperatura,
+                        )
+                    else:
+                        r = PROVEDORES[fornecedor].executar(modelo, prompt["prompt"], p)
+                    registro = _registro(prompt["id"], fornecedor, modelo, r, p)
+                    planilha.acrescentar_execucao(wb, registro)
+                    wb.save(destino)  # salva a cada chamada para não perder nada
+                    algum_sucesso |= r.sucesso
+                    execucoes.append({
+                        "prompt": prompt["id"],
+                        "fornecedor": NOMES[fornecedor],
+                        "modelo": modelo,
+                        "status": registro["Status"],
+                        "tokens": r.total_tokens,
+                        "latencia_ms": r.latencia_ms,
+                        "erro": r.erro or None,
+                    })
+            if algum_sucesso:
+                planilha.marcar_status(wb, prompt["linha"], planilha.STATUS_EXECUTADO)
+
+        dados = sumario.atualizar(wb)
+        wb.save(destino)
+        wb.close()
+
+    return {
+        "planilha_origem": origem.name,
+        "planilha_gerada": destino.name,
+        "versao": numero,
+        "execucoes": execucoes,
+        "ignorados": ignorados,
+        "sumario_por_fornecedor": dados["por_fornecedor"],
+    }
+
+
+def atualizar_modelos(nome_fornecedor: str) -> dict:
+    fornecedor = normaliza_fornecedor(nome_fornecedor)
+    if not fornecedor:
+        raise ErroDeEntrada(f"Fornecedor desconhecido: {nome_fornecedor!r}. Use gemini, claude ou openai.")
+    if not config.tem_credencial(fornecedor):
+        raise ErroDeEntrada(f"Sem credencial de {NOMES[fornecedor]} no .env")
+
+    modelos = PROVEDORES[fornecedor].listar_modelos()
+    with _trava:
+        _, arquivo = planilha.ultima_versao()
+        wb = load_workbook(arquivo)
+        planilha.gravar_catalogo(wb, NOMES[fornecedor], modelos)
+        wb.save(arquivo)
+        wb.close()
+
+    return {
+        "fornecedor": NOMES[fornecedor],
+        "planilha": arquivo.name,
+        "quantidade": len(modelos),
+        "modelos": [{"id": i, "nome": n} for i, n in modelos],
+    }
