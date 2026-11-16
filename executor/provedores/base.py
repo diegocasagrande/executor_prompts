@@ -3,12 +3,14 @@
 import time
 from dataclasses import dataclass, field
 
-NOMES = {"gemini": "Gemini", "claude": "Claude", "openai": "OpenAI"}
+NOMES = {"gemini": "Gemini", "claude": "Claude", "openai": "OpenAI", "claude_code": "Claude (assinatura)"}
 
 APELIDOS = {
     "gemini": "gemini", "google": "gemini",
     "claude": "claude", "anthropic": "claude",
     "openai": "openai", "gpt": "openai", "chatgpt": "openai",
+    "claude_code": "claude_code", "claude-code": "claude_code", "claude (assinatura)": "claude_code",
+    "assinatura": "claude_code",
 }
 
 

@@ -42,6 +42,10 @@ def _alvos(prompt: dict, selecao: dict[str, list[str]]) -> tuple[list[tuple[str,
     fornecedor = normaliza_fornecedor(prompt["fornecedor"])
     modelo = prompt["modelo"]
 
+    # Linha "Claude" e requisição só com a assinatura: roda pelo Claude Code.
+    if fornecedor == "claude" and "claude" not in selecao and "claude_code" in selecao:
+        fornecedor = "claude_code"
+
     if prompt["fornecedor"] and not fornecedor:
         return [], f"fornecedor {prompt['fornecedor']!r} desconhecido na aba Prompts"
     if modelo and not fornecedor:
@@ -50,8 +54,15 @@ def _alvos(prompt: dict, selecao: dict[str, list[str]]) -> tuple[list[tuple[str,
     if fornecedor and modelo:
         if fornecedor not in selecao:
             return [], f"{NOMES[fornecedor]} não foi solicitado ou não tem credencial"
-        if selecao[fornecedor] and modelo not in selecao[fornecedor]:
-            return [], f"modelo {modelo!r} não está entre os solicitados para {NOMES[fornecedor]}"
+        if selecao[fornecedor]:
+            # os aliases do Claude Code (haiku, sonnet, opus) não diferenciam maiúsculas
+            casados = [m for m in selecao[fornecedor]
+                       if m == modelo or (fornecedor == "claude_code" and m.lower() == modelo.lower())]
+            if not casados:
+                return [], f"modelo {modelo!r} não está entre os solicitados para {NOMES[fornecedor]}"
+            modelo = casados[0]
+        elif fornecedor == "claude_code":
+            modelo = modelo.lower()
         return [(fornecedor, modelo)], ""
 
     if fornecedor:

@@ -233,3 +233,97 @@ def test_retentativa_em_503(monkeypatch):
         api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
     r = claude.executar("m", "oi", Parametros())
     assert r.sucesso and r.tentativas == 3
+
+
+# ---------------------------------------------------------------- Claude pela assinatura
+
+def _saida_cli(**extra):
+    base = {
+        "type": "result", "subtype": "success", "is_error": False, "result": "B", "session_id": "sess-1",
+        "stop_reason": "end_turn", "terminal_reason": "completed",
+        "usage": {"input_tokens": 12, "output_tokens": 4, "cache_read_input_tokens": 100,
+                  "cache_creation_input_tokens": 8},
+        "modelUsage": {"claude-haiku-5-5": {"inputTokens": 12}},
+    }
+    base.update(extra)
+    return json.dumps(base)
+
+
+def _fake_run(saidas, chamadas):
+    import subprocess
+
+    def run(cmd, **kwargs):
+        chamadas.append((cmd, kwargs))
+        saida = saidas.pop(0)
+        if isinstance(saida, Exception):
+            raise saida
+        return subprocess.CompletedProcess(cmd, 0, stdout=saida, stderr="")
+    return run
+
+
+def test_claude_code_sucesso(monkeypatch):
+    from executor.provedores import claude_code
+
+    chamadas = []
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-nao-pode-ir-para-o-cli")
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([_saida_cli()], chamadas))
+    monkeypatch.setattr(config, "dono", lambda f: "Diego")
+    r = claude_code.executar("haiku", "oi", Parametros(system_prompt="seja breve"))
+
+    cmd, kw = chamadas[0]
+    assert cmd[:2] == ["claude", "-p"] and "--model" in cmd and cmd[cmd.index("--model") + 1] == "haiku"
+    assert "--append-system-prompt" in cmd and "--disallowedTools" in cmd
+    assert kw["input"] == "oi" and "ANTHROPIC_API_KEY" not in kw["env"]
+    assert r.sucesso and r.texto == "B" and r.id_resposta == "sess-1" and r.modelo_efetivo == "claude-haiku-5-5"
+    assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (12, 4, 100, 124)
+    assert r.dono_api == "Diego | assinatura" and r.temperatura_usada == "não suportada"
+
+
+def test_claude_code_erro_de_autenticacao_nao_repete(monkeypatch):
+    from executor.provedores import claude_code
+
+    chamadas = []
+    erro = _saida_cli(is_error=True, result="Authentication error", terminal_reason="api_error",
+                      api_error_status=None)
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([erro], chamadas))
+    r = claude_code.executar("haiku", "oi", Parametros())
+    assert not r.sucesso and "Authentication error" in r.erro and r.tentativas == 1 and len(chamadas) == 1
+
+
+def test_claude_code_repete_em_429_e_timeout(monkeypatch):
+    import subprocess
+    from executor.provedores import base, claude_code
+
+    monkeypatch.setattr(claude_code.time, "sleep", lambda s: None)
+    chamadas = []
+    limite = _saida_cli(is_error=True, result="rate limit", terminal_reason="api_error", api_error_status=429)
+    saidas = [subprocess.TimeoutExpired("claude", 1), limite, _saida_cli()]
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run(saidas, chamadas))
+    r = claude_code.executar("haiku", "oi", Parametros())
+    assert r.sucesso and r.tentativas == 3
+
+
+def test_claude_code_no_fluxo(pasta, monkeypatch):
+    from executor.provedores import claude_code
+
+    chamadas = []
+    monkeypatch.setattr(config, "tem_credencial", lambda f: True)
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([_saida_cli()], chamadas))
+
+    # linha pede Claude/Haiku; a requisição só tem a assinatura
+    r = servico.executar_lote({"assinatura": ["haiku"]})
+    assert r["execucoes"][0]["fornecedor"] == "Claude (assinatura)" and r["execucoes"][0]["status"] == "sucesso"
+    assert chamadas[0][0][chamadas[0][0].index("--model") + 1] == "haiku"
+    wb = _abrir(pasta, 2)
+    ex = planilha.ler_execucoes(wb)[-1]
+    assert ex["Fornecedor"] == "Claude (assinatura)" and ex["Final da chave"] in (None, "")
+    assert ex["Modelo efetivo"] == "claude-haiku-5-5" and ex["Total de tokens"] == 124
+
+    # com "claude" (API) na requisição, a linha continua indo para a API
+    wb = _abrir(pasta, 2)
+    wb["Prompts"]["C2"] = "Pronto para executar"
+    wb.save(pasta / "PromptExecucoesSumario_v00002.xlsx")
+    monkeypatch.setitem(PROVEDORES, "claude", type("F", (), {"executar": staticmethod(
+        lambda m, p_, par: Resultado(sucesso=True, texto="x", modelo_efetivo=m))})())
+    r = servico.executar_lote({"claude": [], "assinatura": []})
+    assert [e["fornecedor"] for e in r["execucoes"]] == ["Claude"]
