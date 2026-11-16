@@ -50,6 +50,10 @@ def falsos(monkeypatch):
     return chamadas
 
 
+def execucoes_texto(wb):
+    return [(r[0], r[1]) for r in wb["Execuções"].iter_rows(min_row=2, values_only=True) if r[0]]
+
+
 def _abrir(pasta, versao):
     return load_workbook(pasta / f"PromptExecucoesSumario_v{versao:05d}.xlsx")
 
@@ -64,9 +68,14 @@ def test_execucao_gera_nova_versao_e_preserva_a_anterior(pasta, falsos):
     wb = _abrir(pasta, 2)
     execucoes = planilha.ler_execucoes(wb)
     assert [c.value for c in wb["Execuções"][1]][:23] == planilha.COLUNAS_EXECUCOES
+    # A e B são o identificador do prompt e o texto do resultado, como na planilha original
+    assert [c.value for c in wb["Execuções"][1]][:2] == ["Identificador Único", "Texto do Resultado"]
+    assert execucoes_texto(wb)[-1][0] == "PROMPT_D_V1" and execucoes_texto(wb)[-1][1] == "resposta de Haiku"
     assert len(execucoes) == 2  # 1 migrada + 1 nova
     assert execucoes[0]["Fornecedor"] == "Gemini" and execucoes[0]["ID da execução"].startswith("migrado-")
-    assert execucoes[1]["Modelo solicitado"] == "Haiku" and execucoes[1]["Status"] == "sucesso"
+    assert execucoes[0]["Identificador Único"] == "PROMPT_D_V1" and execucoes[0]["Modelo utilizado"] == "gemini-3.5-flash-lite"
+    assert execucoes[0]["Data da Execução"] == "16/11/2026" and execucoes[0]["Hora da Execução"] == "05:13:09"
+    assert execucoes[1]["Modelo solicitado"] == "Haiku" and execucoes[1]["Modelo utilizado"] == "Haiku" and execucoes[1]["Status"] == "sucesso"
     assert execucoes[1]["Final da chave"] == "...1234"
     assert wb["Prompts"]["C2"].value == "Executado"
 
@@ -317,7 +326,7 @@ def test_claude_code_no_fluxo(pasta, monkeypatch):
     wb = _abrir(pasta, 2)
     ex = planilha.ler_execucoes(wb)[-1]
     assert ex["Fornecedor"] == "Claude (assinatura)" and ex["Final da chave"] in (None, "")
-    assert ex["Modelo efetivo"] == "claude-haiku-5-5" and ex["Total de tokens"] == 124
+    assert ex["Modelo utilizado"] == "claude-haiku-5-5" and ex["Total de tokens"] == 124
 
     # com "claude" (API) na requisição, a linha continua indo para a API
     wb = _abrir(pasta, 2)

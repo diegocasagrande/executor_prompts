@@ -20,7 +20,7 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
 | Aba | Uso |
 |---|---|
 | **Prompts** | Entrada. A = ID, B = Prompt, C = Status, D = Fornecedor (opcional), E = Modelo (opcional, ID exato) |
-| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (23 colunas) |
+| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (23 colunas; A = Identificador Único, B = Texto do Resultado) |
 | **Sumário** | Recalculado ao fim de cada execução: sucesso/erro por fornecedor; execuções, tokens e latência média por modelo |
 | **Modelos** | Catálogo de modelos por fornecedor, preenchido por `GET /modelos/{fornecedor}` |
 
@@ -75,14 +75,14 @@ O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `clau
 
 - Requisitos: Claude Code instalado e logado na máquina (`claude` no PATH, ou `CLAUDE_CODE_BIN` no `.env`).
 - Uma linha da aba Prompts com Fornecedor `Claude` roda por aqui quando a requisição pede só `assinatura`. Se a requisição também pedir `claude`, a linha vai pela API.
-- Os modelos são os aliases do CLI (`haiku`, `sonnet`, `opus`) ou um ID completo; a coluna **Modelo efetivo** registra o que respondeu. O CLI não lista modelos: `GET /modelos/assinatura` grava os três aliases.
+- Os modelos são os aliases do CLI (`haiku`, `sonnet`, `opus`) ou um ID completo; a coluna **Modelo utilizado** registra o que respondeu. O CLI não lista modelos: `GET /modelos/assinatura` grava os três aliases.
 - `ANTHROPIC_API_KEY` é removida do ambiente da chamada, para o CLI não cobrar a API sem você perceber.
 - Limitações: o Claude Code acrescenta o próprio system prompt, as ferramentas são desabilitadas, não há controle de temperatura nem de máximo de tokens, e o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
 - Não verifiquei se as condições do plano permitem execuções automatizadas em lote por este caminho; confira antes de usar em larga escala.
 
 ## Colunas da aba Execuções
 
-ID da execução · ID do prompt · Fornecedor · Modelo solicitado · Modelo efetivo · ID da resposta · Data · Hora · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Texto da resposta · Dono da API · Final da chave · System prompt
+**Identificador Único** (ID do prompt) · **Texto do Resultado** · **Modelo utilizado** (o que respondeu) · Data da Execução · Hora da Execução (as cinco da planilha original, nesta ordem) · ID da execução · Fornecedor · Modelo solicitado · ID da resposta · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Dono da API · Final da chave · System prompt
 
 Observações para comparar fornecedores:
 
