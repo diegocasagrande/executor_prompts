@@ -37,6 +37,7 @@ def falsos(monkeypatch):
 
         def executar(self, modelo, prompt, p):
             chamadas.append((self.nome, modelo))
+            self.ultimo_system = p.system_prompt
             return Resultado(sucesso=True, texto=f"resposta de {modelo}", modelo_efetivo=modelo,
                              id_resposta="r1", tokens_entrada=10, tokens_saida=5, tokens_cache=0,
                              total_tokens=15, motivo_parada="end_turn", latencia_ms=100, tentativas=1,
@@ -336,3 +337,34 @@ def test_claude_code_no_fluxo(pasta, monkeypatch):
         lambda m, p_, par: Resultado(sucesso=True, texto="x", modelo_efetivo=m))})())
     r = servico.executar_lote({"claude": [], "assinatura": []})
     assert [e["fornecedor"] for e in r["execucoes"]] == ["Claude"]
+
+
+def test_system_prompt_vem_da_coluna_f_da_aba_prompts(pasta, falsos, monkeypatch):
+    vistos = []
+    original = PROVEDORES["claude"].executar
+
+    def espiao(modelo, prompt, p):
+        vistos.append(p.system_prompt)
+        return original(modelo, prompt, p)
+
+    monkeypatch.setattr(PROVEDORES["claude"], "executar", espiao)
+
+    # linha sem system prompt: nada é enviado
+    servico.executar_lote({"claude": []})
+    wb = _abrir(pasta, 2)
+    assert wb["Prompts"]["F1"].value == "System prompt"
+    assert planilha.ler_execucoes(wb)[-1]["System prompt"] in (None, "")
+
+    # linha com system prompt
+    wb["Prompts"]["C2"] = "Pronto para executar"
+    wb["Prompts"]["F2"] = "seja breve"
+    wb.save(pasta / "PromptExecucoesSumario_v00002.xlsx")
+    servico.executar_lote({"claude": []})
+    assert vistos == [None, "seja breve"]
+    assert planilha.ler_execucoes(_abrir(pasta, 3))[-1]["System prompt"] == "seja breve"
+
+
+def test_api_nao_aceita_system_prompt_na_requisicao():
+    import api
+
+    assert "system_prompt" not in api.RequisicaoExecucao.model_fields

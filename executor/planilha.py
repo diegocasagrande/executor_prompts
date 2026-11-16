@@ -110,13 +110,14 @@ def _texto(valor) -> str:
 def ler_prompts_prontos(wb: Workbook) -> list[dict]:
     """Linhas da aba Prompts com Status = 'Pronto para executar'.
 
-    Colunas: A=ID, B=Prompt, C=Status, D=Fornecedor (opcional), E=Modelo (opcional).
+    Colunas: A=ID, B=Prompt, C=Status, D=Fornecedor (opcional), E=Modelo (opcional),
+    F=System prompt (opcional; vale só para a linha).
     """
     ws = wb[ABA_PROMPTS]
     prontos = []
     for linha in range(2, _ultima_linha_preenchida(ws) + 1):
-        valores = [ws.cell(linha, c).value for c in range(1, 6)]
-        id_, prompt, status, fornecedor, modelo = valores
+        valores = [ws.cell(linha, c).value for c in range(1, 7)]
+        id_, prompt, status, fornecedor, modelo, system_prompt = valores
         if _texto(prompt) and _texto(status).lower() == STATUS_PRONTO.lower():
             prontos.append({
                 "linha": linha,
@@ -124,8 +125,16 @@ def ler_prompts_prontos(wb: Workbook) -> list[dict]:
                 "prompt": str(prompt),
                 "fornecedor": _texto(fornecedor),
                 "modelo": _texto(modelo),
+                "system_prompt": _texto(system_prompt),
             })
     return prontos
+
+
+def preparar_prompts(wb: Workbook) -> None:
+    """Cria o cabeçalho da coluna F (System prompt) na aba Prompts, se ainda não existir."""
+    ws = wb[ABA_PROMPTS]
+    if not _texto(ws.cell(1, 6).value):
+        ws.cell(1, 6, "System prompt")
 
 
 def marcar_status(wb: Workbook, linha: int, status: str) -> None:

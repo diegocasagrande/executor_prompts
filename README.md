@@ -19,13 +19,14 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
 
 | Aba | Uso |
 |---|---|
-| **Prompts** | Entrada. A = ID, B = Prompt, C = Status, D = Fornecedor (opcional), E = Modelo (opcional, ID exato) |
+| **Prompts** | Entrada. A = ID, B = Prompt, C = Status, D = Fornecedor (opcional), E = Modelo (opcional, ID exato), F = System prompt (opcional) |
 | **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (23 colunas; A = Identificador Único, B = Texto do Resultado) |
 | **Sumário** | Recalculado ao fim de cada execução: sucesso/erro por fornecedor; execuções, tokens e latência média por modelo |
 | **Modelos** | Catálogo de modelos por fornecedor, preenchido por `GET /modelos/{fornecedor}` |
 
 ### Regras de execução
 
+- **System prompt:** vem só da coluna F da aba Prompts e vale para aquela linha; vazio = nenhum. A requisição não tem mais esse campo. O valor usado fica registrado na coluna *System prompt* da aba Execuções. No fornecedor `claude_code` ele é acrescentado ao system prompt padrão do Claude Code, não o substitui.
 - Só rodam as linhas com Status = `Pronto para executar`.
 - As colunas Fornecedor/Modelo da linha definem onde o prompt roda. A requisição filtra:
   - linha com Fornecedor + Modelo: roda se o fornecedor estiver na requisição e, quando a requisição listar modelos para ele, se o modelo estiver na lista;
@@ -50,8 +51,7 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
   },
   "repeticoes": 1,
   "temperatura": 0,
-  "max_tokens": 4096,
-  "system_prompt": null
+  "max_tokens": 4096
 }
 ```
 
