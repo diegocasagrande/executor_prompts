@@ -1,6 +1,7 @@
 """Configuração lida do arquivo .env (nunca versionado)."""
 
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,16 +17,22 @@ PREFIXO_PLANILHA = os.getenv("PREFIXO_PLANILHA", "PromptExecucoesSumario")
 
 MAX_TENTATIVAS = int(os.getenv("MAX_TENTATIVAS", "5"))
 
+# Claude pela assinatura (Claude Code logado), sem chave de API
+CLAUDE_CODE_BIN = os.getenv("CLAUDE_CODE_BIN", "claude")
+CLAUDE_CODE_TIMEOUT = int(os.getenv("CLAUDE_CODE_TIMEOUT", "300"))
+
 # Fornecedor -> (variável da chave, variável do dono)
 VARIAVEIS = {
     "gemini": ("GEMINI_API_KEY", "GEMINI_DONO"),
     "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_DONO"),
     "openai": ("OPENAI_API_KEY", "OPENAI_DONO"),
+    "claude_code": ("", "CLAUDE_CODE_DONO"),  # sem chave: usa o login do Claude Code
 }
 
 
 def chave(fornecedor: str) -> str:
-    return os.getenv(VARIAVEIS[fornecedor][0], "").strip()
+    variavel = VARIAVEIS[fornecedor][0]
+    return os.getenv(variavel, "").strip() if variavel else ""
 
 
 def dono(fornecedor: str) -> str:
@@ -38,4 +45,6 @@ def final_da_chave(fornecedor: str) -> str:
 
 
 def tem_credencial(fornecedor: str) -> bool:
+    if fornecedor == "claude_code":
+        return shutil.which(CLAUDE_CODE_BIN) is not None
     return bool(chave(fornecedor))

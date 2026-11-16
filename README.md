@@ -65,6 +65,21 @@ Consulta a API do fornecedor e substitui a lista dele na aba Modelos da última 
 
 Mostra os fornecedores e se há credencial configurada.
 
+## Claude pela assinatura (sem chave de API)
+
+O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `claude -p` com o Claude Code logado na sua conta do plano. As execuções consomem o limite de uso da assinatura em vez de cobrar a API.
+
+```json
+{ "modelos": { "assinatura": ["haiku"] } }
+```
+
+- Requisitos: Claude Code instalado e logado na máquina (`claude` no PATH, ou `CLAUDE_CODE_BIN` no `.env`).
+- Uma linha da aba Prompts com Fornecedor `Claude` roda por aqui quando a requisição pede só `assinatura`. Se a requisição também pedir `claude`, a linha vai pela API.
+- Os modelos são os aliases do CLI (`haiku`, `sonnet`, `opus`) ou um ID completo; a coluna **Modelo efetivo** registra o que respondeu. O CLI não lista modelos: `GET /modelos/assinatura` grava os três aliases.
+- `ANTHROPIC_API_KEY` é removida do ambiente da chamada, para o CLI não cobrar a API sem você perceber.
+- Limitações: o Claude Code acrescenta o próprio system prompt, as ferramentas são desabilitadas, não há controle de temperatura nem de máximo de tokens, e o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
+- Não verifiquei se as condições do plano permitem execuções automatizadas em lote por este caminho; confira antes de usar em larga escala.
+
 ## Colunas da aba Execuções
 
 ID da execução · ID do prompt · Fornecedor · Modelo solicitado · Modelo efetivo · ID da resposta · Data · Hora · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Texto da resposta · Dono da API · Final da chave · System prompt
