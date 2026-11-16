@@ -1,5 +1,6 @@
 """Orquestra a execução: escolhe o que rodar, versiona a planilha, registra e sumariza."""
 
+import dataclasses
 import threading
 import uuid
 from datetime import datetime
@@ -137,12 +138,15 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
         numero, _, destino = planilha.nova_versao()
         wb = load_workbook(destino)
         planilha.preparar_execucoes(wb)
+        planilha.preparar_prompts(wb)
         catalogo = planilha.ler_catalogo(wb)
         wb.save(destino)
 
         execucoes = []
         for prompt, alvos in plano:
             algum_sucesso = False
+            # o system prompt vem só da coluna F da aba Prompts (por linha)
+            p_linha = dataclasses.replace(p, system_prompt=prompt["system_prompt"] or None)
             for fornecedor, modelo in alvos:
                 conhecidos = catalogo.get(NOMES[fornecedor].lower())
                 for _ in range(repeticoes):
@@ -154,8 +158,8 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
                             temperatura_usada=p.temperatura,
                         )
                     else:
-                        r = PROVEDORES[fornecedor].executar(modelo, prompt["prompt"], p)
-                    registro = _registro(prompt["id"], fornecedor, modelo, r, p)
+                        r = PROVEDORES[fornecedor].executar(modelo, prompt["prompt"], p_linha)
+                    registro = _registro(prompt["id"], fornecedor, modelo, r, p_linha)
                     planilha.acrescentar_execucao(wb, registro)
                     wb.save(destino)  # salva a cada chamada para não perder nada
                     algum_sucesso |= r.sucesso

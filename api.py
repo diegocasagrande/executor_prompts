@@ -29,7 +29,6 @@ class RequisicaoExecucao(BaseModel):
     repeticoes: int = Field(1, ge=1, le=100, description="Quantas vezes rodar cada prompt em cada modelo")
     temperatura: float | None = Field(0, ge=0, le=2, description="null = não enviar (padrão do modelo)")
     max_tokens: int = Field(4096, ge=1, le=128000)
-    system_prompt: str | None = None
 
 
 @app.get("/fornecedores")
@@ -45,7 +44,7 @@ def executar(req: RequisicaoExecucao):
         return servico.executar_lote(
             req.modelos,
             repeticoes=req.repeticoes,
-            parametros=Parametros(req.temperatura, req.max_tokens, req.system_prompt),
+            parametros=Parametros(req.temperatura, req.max_tokens),
         )
     except servico.ErroDeEntrada as erro:
         raise HTTPException(422, str(erro)) from erro
