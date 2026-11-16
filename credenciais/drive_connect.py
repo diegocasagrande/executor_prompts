@@ -1,0 +1,61 @@
+import os.path
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+# Define os escopos de acesso. 
+# Use 'drive.file' para ler/criar apenas arquivos gerenciados pelo seu app,
+# ou 'drive' para acesso total a todos os arquivos do Drive.
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
+def get_drive_service():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES
+            )
+            # Desativa a abertura automatica do navegador e solicita no console
+            creds = flow.run_console()
+
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    try:
+        service = build('drive', 'v3', credentials=creds)
+        return service
+    except HttpError as error:
+        print(f"Ocorreu um erro ao conectar: {error}")
+        return None
+
+def main():
+    service = get_drive_service()
+    if not service:
+        return
+
+    print("Conexão estabelecida com sucesso!\n")
+    print("Listando os 10 primeiros arquivos do seu Google Drive:")
+
+    # Exemplo: listar até 10 arquivos no Drive
+    results = service.files().list(
+        pageSize=10, 
+        fields="nextPageToken, files(id, name)"
+    ).execute()
+    
+    items = results.get('files', [])
+
+    if not items:
+        print("Nenhum arquivo encontrado.")
+    else:
+        for item in items:
+            print(f"{item['name']} (ID: {item['id']})")
+
+if __name__ == '__main__':
+    main()
