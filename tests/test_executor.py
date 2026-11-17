@@ -406,3 +406,30 @@ def test_migracao_preserva_linhas_do_layout_de_23_colunas(pasta, falsos):
     ex = planilha.ler_execucoes(_abrir(pasta, 3))
     assert len(ex) == 3 and ex[1]["Texto do Resultado"] == "resposta de Haiku" and ex[1]["Tokens de entrada"] == 10
     assert ex[1]["Mensagem de erro"] in (None, "")  # execução real não vira "migrada"
+
+
+def test_log_mostra_progresso_metadados_e_resposta(pasta, falsos, monkeypatch, tmp_path, capsys):
+    import logging
+    from executor import log as executor_log
+
+    monkeypatch.setattr(executor_log, "PASTA_LOGS", tmp_path / "logs")
+    monkeypatch.setattr(executor_log, "RESPOSTA_TERMINAL", 5)
+    monkeypatch.setattr(executor_log, "_configurado", False)
+    for nome in ("executor", "executor.resposta.terminal", "executor.resposta.arquivo"):
+        logging.getLogger(nome).handlers.clear()
+    executor_log.configurar()
+
+    servico.executar_lote({"claude": []}, repeticoes=2)
+    for h in logging.getLogger("executor").handlers:
+        h.flush()
+
+    terminal = capsys.readouterr().out
+    arquivo = (tmp_path / "logs" / "executor.log").read_text(encoding="utf-8")
+    assert "[1/2] PROMPT_D_V1 | Claude | Haiku | repetição 1/2 | início" in terminal
+    assert "[2/2] PROMPT_D_V1 | Claude | Haiku | SUCESSO" in terminal
+    assert "tokens entrada=10 saída=5" in terminal and "latência=100 ms" in terminal
+    assert "    respo… [+12 caracteres]" in terminal          # cortada no terminal
+    assert "    resposta de Haiku" in arquivo                   # completa no arquivo
+    assert "=== Fim do lote | PromptExecucoesSumario_v00002.xlsx | 2 chamadas | 2 sucesso | 0 erro" in arquivo
+    for nome in ("executor", "executor.resposta.terminal", "executor.resposta.arquivo"):
+        logging.getLogger(nome).handlers.clear()

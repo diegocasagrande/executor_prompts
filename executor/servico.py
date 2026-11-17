@@ -2,12 +2,15 @@
 
 import dataclasses
 import threading
+import time
 import uuid
 from datetime import datetime
 
 from openpyxl import load_workbook
 
 from executor import config, planilha, sumario
+from executor.log import log
+from executor import log as registro_log
 from executor.provedores import PROVEDORES
 from executor.provedores.base import NOMES, Parametros, Resultado, normaliza_fornecedor
 
@@ -105,12 +108,32 @@ def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros) -> dic
     }
 
 
+def _log_resultado(n, total, prompt_id, fornecedor, modelo, r: Resultado, registro: dict) -> None:
+    metadados = (
+        f"modelo utilizado={registro['Modelo utilizado']} | latência={r.latencia_ms} ms | "
+        f"tokens entrada={r.tokens_entrada} saída={r.tokens_saida} raciocínio={r.tokens_raciocinio} "
+        f"cache={r.tokens_cache} total={r.total_tokens} | parada={r.motivo_parada or '-'} | "
+        f"turnos={r.turnos} | tentativas={r.tentativas} | id resposta={r.id_resposta or '-'}"
+    )
+    if r.sucesso:
+        log.info("[%d/%d] %s | %s | %s | SUCESSO | %s", n, total, prompt_id, NOMES[fornecedor], modelo, metadados)
+        registro_log.resposta(r.texto)
+    else:
+        log.error("[%d/%d] %s | %s | %s | ERRO | %s | %s", n, total, prompt_id, NOMES[fornecedor], modelo,
+                  r.erro, metadados)
+        if r.texto:
+            registro_log.resposta(r.texto)
+
+
 def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros: Parametros | None = None) -> dict:
     p = parametros or Parametros()
     if repeticoes < 1:
         raise ErroDeEntrada("repeticoes deve ser >= 1")
 
     with _trava:
+        inicio_lote = time.perf_counter()
+        log.info("=== Início do lote | seleção=%s | repetições=%d | temperatura=%s | max_tokens=%d",
+                 selecao, repeticoes, p.temperatura, p.max_tokens)
         selecao, ignorados = _normalizar_selecao(selecao)
 
         # 1. planeja a partir da última versão, sem alterá-la
@@ -127,7 +150,14 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
             else:
                 ignorados.append({"prompt": prompt["id"], "motivo": motivo})
 
+        total = sum(len(alvos) for _, alvos in plano) * repeticoes
+        log.info("Planilha de origem: %s | prompts prontos: %d | a executar: %d prompts, %d chamadas",
+                 origem.name, len(prontos), len(plano), total)
+        for item in ignorados:
+            log.warning("Ignorado: %s", item)
+
         if not plano:
+            log.info("=== Nada a executar; nenhuma nova versão foi criada.")
             return {
                 "planilha_origem": origem.name,
                 "planilha_gerada": None,
@@ -143,15 +173,20 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
         planilha.preparar_prompts(wb)
         catalogo = planilha.ler_catalogo(wb)
         wb.save(destino)
+        log.info("Nova versão: %s", destino.name)
 
         execucoes = []
+        n = 0
         for prompt, alvos in plano:
             algum_sucesso = False
             # o system prompt vem só da coluna F da aba Prompts (por linha)
             p_linha = dataclasses.replace(p, system_prompt=prompt["system_prompt"] or None)
             for fornecedor, modelo in alvos:
                 conhecidos = catalogo.get(NOMES[fornecedor].lower())
-                for _ in range(repeticoes):
+                for rep in range(1, repeticoes + 1):
+                    n += 1
+                    log.info("[%d/%d] %s | %s | %s | repetição %d/%d | início",
+                             n, total, prompt["id"], NOMES[fornecedor], modelo, rep, repeticoes)
                     if conhecidos and modelo not in conhecidos:
                         r = Resultado(
                             erro=f"modelo {modelo!r} não consta na aba Modelos para {NOMES[fornecedor]}; "
@@ -162,6 +197,7 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
                     else:
                         r = PROVEDORES[fornecedor].executar(modelo, prompt["prompt"], p_linha)
                     registro = _registro(prompt["id"], fornecedor, modelo, r, p_linha)
+                    _log_resultado(n, total, prompt["id"], fornecedor, modelo, r, registro)
                     planilha.acrescentar_execucao(wb, registro)
                     wb.save(destino)  # salva a cada chamada para não perder nada
                     algum_sucesso |= r.sucesso
@@ -181,6 +217,12 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
         wb.save(destino)
         wb.close()
 
+        sucessos = sum(1 for e in execucoes if e["status"] == "sucesso")
+        log.info("=== Fim do lote | %s | %d chamadas | %d sucesso | %d erro | %.1f s",
+                 destino.name, len(execucoes), sucessos, len(execucoes) - sucessos, time.perf_counter() - inicio_lote)
+        for fornecedor_nome, v in sorted(dados["por_fornecedor"].items()):
+            log.info("    Sumário %s: %d sucesso, %d erro (acumulado da planilha)", fornecedor_nome, v["sucesso"], v["erro"])
+
     return {
         "planilha_origem": origem.name,
         "planilha_gerada": destino.name,
@@ -198,6 +240,7 @@ def atualizar_modelos(nome_fornecedor: str) -> dict:
     if not config.tem_credencial(fornecedor):
         raise ErroDeEntrada(f"Sem credencial de {NOMES[fornecedor]} no .env")
 
+    log.info("Consultando modelos de %s", NOMES[fornecedor])
     modelos = PROVEDORES[fornecedor].listar_modelos()
     with _trava:
         _, arquivo = planilha.ultima_versao()
@@ -206,6 +249,7 @@ def atualizar_modelos(nome_fornecedor: str) -> dict:
         wb.save(arquivo)
         wb.close()
 
+    log.info("Catálogo de %s: %d modelos gravados na aba Modelos de %s", NOMES[fornecedor], len(modelos), arquivo.name)
     return {
         "fornecedor": NOMES[fornecedor],
         "planilha": arquivo.name,
