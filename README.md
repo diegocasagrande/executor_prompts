@@ -110,6 +110,21 @@ Cada execução aparece no terminal onde roda o `uvicorn` e em `logs/executor.lo
 
 No terminal a resposta é cortada em `LOG_RESPOSTA_TERMINAL` caracteres; no arquivo vai completa (ou até `LOG_RESPOSTA_ARQUIVO`). Erros transitórios e itens ignorados aparecem como `WARNING`, falhas como `ERROR`. A planilha continua sendo o registro oficial de auditoria; o log serve para acompanhar a execução.
 
+## Isolamento entre execuções
+
+Cada chamada é independente: o executor cria um cliente novo e envia só o prompt (e o system prompt) da própria linha, sem histórico, sessão ou ID de resposta anterior. No `claude_code`, cada chamada roda numa pasta temporária vazia e nova, com `--no-session-persistence` e sem `--continue`/`--resume`. Os testes `test_isolamento_*` conferem as requisições montadas pelos SDKs e pelo CLI.
+
+Os *Tokens de cache* não indicam mistura de contexto: o cache do fornecedor só reaproveita um trecho inicial **idêntico** (em geral o system prompt) para cobrar menos, e não acrescenta nada de uma execução em outra.
+
+Para conferir com as suas credenciais, sem gravar na planilha:
+
+```bash
+python scripts/teste_isolamento.py claude_code:haiku
+python scripts/teste_isolamento.py claude:claude-haiku-5-5 gemini:gemini-3.5-flash-lite openai:gpt-5-mini
+```
+
+O script pede para o modelo memorizar uma palavra-código aleatória numa chamada e pergunta por ela na seguinte (deve responder "NÃO SEI"), e depois pede que descreva todo o contexto que recebeu, apontando termos do ambiente como repositório, diretório ou CLAUDE.md.
+
 ## Testes
 
 ```bash
