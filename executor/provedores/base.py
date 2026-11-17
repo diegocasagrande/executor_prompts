@@ -1,5 +1,6 @@
 """Formato comum de retorno e lógica de retentativas para os três fornecedores."""
 
+import logging
 import time
 from dataclasses import dataclass, field
 
@@ -71,7 +72,11 @@ def com_retentativas(chamada, eh_transitorio, max_tentativas: int):
             if tentativa == max_tentativas or not eh_transitorio(erro):
                 erro.tentativas = tentativa
                 raise
-            time.sleep(0.5 * 2 ** (tentativa - 1))
+            espera = 0.5 * 2 ** (tentativa - 1)
+            logging.getLogger("executor").warning(
+                "Erro transitório (tentativa %d/%d), nova tentativa em %.1f s: %s",
+                tentativa, max_tentativas, espera, str(erro)[:300])
+            time.sleep(espera)
     raise RuntimeError("inalcançável")
 
 

@@ -7,7 +7,7 @@ Docs:   http://127.0.0.1:8000/docs
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from executor import config, servico
+from executor import config, log, servico
 from executor.provedores.base import NOMES, Parametros
 
 app = FastAPI(
@@ -15,6 +15,7 @@ app = FastAPI(
     description="Executa prompts da planilha nos modelos Gemini, Claude e OpenAI e registra para auditoria.",
     version="2.0.0",
 )
+log.configurar()
 
 
 class RequisicaoExecucao(BaseModel):

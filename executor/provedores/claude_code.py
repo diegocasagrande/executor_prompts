@@ -11,6 +11,7 @@ pode usar raciocínio estendido (registrado em "Tokens de raciocínio").
 """
 
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -95,7 +96,11 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
         except _Transitorio as erro:
             erro_final = f"{type(erro).__name__}: {erro}"
             if tentativas < config.MAX_TENTATIVAS:
-                time.sleep(0.5 * 2 ** (tentativas - 1))
+                espera = 0.5 * 2 ** (tentativas - 1)
+                logging.getLogger("executor").warning(
+                    "Erro transitório no claude -p (tentativa %d/%d), nova tentativa em %.1f s: %s",
+                    tentativas, config.MAX_TENTATIVAS, espera, str(erro)[:300])
+                time.sleep(espera)
         except Exception as erro:  # noqa: BLE001
             erro_final = f"{type(erro).__name__}: {erro}"
             break

@@ -93,6 +93,23 @@ Observações para comparar fornecedores:
 - **Temperatura:** a Messages API atual da Anthropic não aceita `temperature`, e o Claude registra `não suportada`. Na OpenAI e no Gemini, se o modelo recusar o parâmetro, a chamada é refeita sem ele e a coluna também registra `não suportada`.
 - **Dono da API:** vem das variáveis `*_DONO` do `.env`. Quando o fornecedor informa nos headers, são acrescentados `org=` (Anthropic e OpenAI) e `projeto=` (OpenAI).
 
+## Log
+
+Cada execução aparece no terminal onde roda o `uvicorn` e em `logs/executor.log` (com rotação a cada 10 MB, 5 arquivos):
+
+```
+2026-11-17 08:01:12 | INFO    | === Início do lote | seleção={'claude_code': ['haiku']} | repetições=1 | temperatura=0 | max_tokens=4096
+2026-11-17 08:01:12 | INFO    | Planilha de origem: PromptExecucoesSumario_v00004.xlsx | prompts prontos: 20 | a executar: 20 prompts, 20 chamadas
+2026-11-17 08:01:12 | INFO    | Nova versão: PromptExecucoesSumario_v00005.xlsx
+2026-11-17 08:01:12 | INFO    | [1/20] TAREFA01_T | Claude (assinatura) | haiku | repetição 1/1 | início
+2026-11-17 08:01:33 | INFO    | [1/20] TAREFA01_T | Claude (assinatura) | haiku | SUCESSO | modelo utilizado=… | latência=21573 ms | tokens entrada=… saída=… raciocínio=… …
+2026-11-17 08:01:33 | INFO    | Resposta:
+    …
+2026-11-17 08:09:40 | INFO    | === Fim do lote | PromptExecucoesSumario_v00005.xlsx | 20 chamadas | 20 sucesso | 0 erro | 508.2 s
+```
+
+No terminal a resposta é cortada em `LOG_RESPOSTA_TERMINAL` caracteres; no arquivo vai completa (ou até `LOG_RESPOSTA_ARQUIVO`). Erros transitórios e itens ignorados aparecem como `WARNING`, falhas como `ERROR`. A planilha continua sendo o registro oficial de auditoria; o log serve para acompanhar a execução.
+
 ## Testes
 
 ```bash
