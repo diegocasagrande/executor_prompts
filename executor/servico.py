@@ -77,7 +77,8 @@ def _alvos(prompt: dict, selecao: dict[str, list[str]]) -> tuple[list[tuple[str,
     return alvos, "" if alvos else "linha sem Fornecedor/Modelo e nenhum modelo informado na requisição"
 
 
-def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros) -> dict:
+def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros,
+              lote: str = "", repeticao: int = 1, repeticoes: int = 1) -> dict:
     agora = datetime.now()
     return {
         "Identificador Único": prompt_id,
@@ -105,10 +106,14 @@ def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros) -> dic
         "System prompt": r.system_prompt_usado or p.system_prompt or "",
         "Tokens de raciocínio": r.tokens_raciocinio,
         "Nº de turnos": r.turnos,
+        "ID do lote": lote,
+        "Nº da repetição": repeticao,
+        "Total de repetições": repeticoes,
     }
 
 
 def _log_resultado(n, total, prompt_id, fornecedor, modelo, r: Resultado, registro: dict) -> None:
+    prompt_id = f"{prompt_id} (rep. {registro['Nº da repetição']}/{registro['Total de repetições']})"
     metadados = (
         f"modelo utilizado={registro['Modelo utilizado']} | latência={r.latencia_ms} ms | "
         f"tokens entrada={r.tokens_entrada} saída={r.tokens_saida} raciocínio={r.tokens_raciocinio} "
@@ -132,8 +137,9 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
 
     with _trava:
         inicio_lote = time.perf_counter()
-        log.info("=== Início do lote | seleção=%s | repetições=%d | temperatura=%s | max_tokens=%d",
-                 selecao, repeticoes, p.temperatura, p.max_tokens)
+        lote = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+        log.info("=== Início do lote %s | seleção=%s | repetições=%d | temperatura=%s | max_tokens=%d",
+                 lote, selecao, repeticoes, p.temperatura, p.max_tokens)
         selecao, ignorados = _normalizar_selecao(selecao)
 
         # 1. planeja a partir da última versão, sem alterá-la
@@ -196,7 +202,7 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
                         )
                     else:
                         r = PROVEDORES[fornecedor].executar(modelo, prompt["prompt"], p_linha)
-                    registro = _registro(prompt["id"], fornecedor, modelo, r, p_linha)
+                    registro = _registro(prompt["id"], fornecedor, modelo, r, p_linha, lote, rep, repeticoes)
                     _log_resultado(n, total, prompt["id"], fornecedor, modelo, r, registro)
                     planilha.acrescentar_execucao(wb, registro)
                     wb.save(destino)  # salva a cada chamada para não perder nada
@@ -205,6 +211,7 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
                         "prompt": prompt["id"],
                         "fornecedor": NOMES[fornecedor],
                         "modelo": modelo,
+                        "repeticao": f"{rep}/{repeticoes}",
                         "status": registro["Status"],
                         "tokens": r.total_tokens,
                         "latencia_ms": r.latencia_ms,
@@ -227,6 +234,7 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
         "planilha_origem": origem.name,
         "planilha_gerada": destino.name,
         "versao": numero,
+        "lote": lote,
         "execucoes": execucoes,
         "ignorados": ignorados,
         "sumario_por_fornecedor": dados["por_fornecedor"],

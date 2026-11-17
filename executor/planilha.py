@@ -46,6 +46,9 @@ COLUNAS_EXECUCOES = [
     "System prompt",
     "Tokens de raciocínio",
     "Nº de turnos",
+    "ID do lote",
+    "Nº da repetição",
+    "Total de repetições",
 ]
 
 COLUNAS_MODELOS = ["Fornecedor", "Modelos", "Nome de exibição", "Data da consulta"]

@@ -88,9 +88,13 @@ def test_execucoes_sao_acrescentadas_entre_versoes(pasta, falsos):
     wb["Prompts"]["C2"] = "Pronto para executar"
     wb.save(pasta / "PromptExecucoesSumario_v00002.xlsx")
 
-    servico.executar_lote({"claude": []}, repeticoes=2)
+    r = servico.executar_lote({"claude": []}, repeticoes=2)
     execucoes = planilha.ler_execucoes(_abrir(pasta, 3))
     assert len(execucoes) == 4  # migrada + 1 + 2
+    # cada execução marca a repetição e o lote
+    assert [(e["Nº da repetição"], e["Total de repetições"]) for e in execucoes[2:]] == [(1, 2), (2, 2)]
+    assert execucoes[2]["ID do lote"] == execucoes[3]["ID do lote"] == r["lote"] != execucoes[1]["ID do lote"]
+    assert [e["repeticao"] for e in r["execucoes"]] == ["1/2", "2/2"]
 
 
 def test_sem_credencial_ou_fora_do_filtro_nao_executa_nem_versiona(pasta, falsos):
@@ -426,7 +430,7 @@ def test_log_mostra_progresso_metadados_e_resposta(pasta, falsos, monkeypatch, t
     terminal = capsys.readouterr().out
     arquivo = (tmp_path / "logs" / "executor.log").read_text(encoding="utf-8")
     assert "[1/2] PROMPT_D_V1 | Claude | Haiku | repetição 1/2 | início" in terminal
-    assert "[2/2] PROMPT_D_V1 | Claude | Haiku | SUCESSO" in terminal
+    assert "[2/2] PROMPT_D_V1 (rep. 2/2) | Claude | Haiku | SUCESSO" in terminal
     assert "tokens entrada=10 saída=5" in terminal and "latência=100 ms" in terminal
     assert "    respo… [+12 caracteres]" in terminal          # cortada no terminal
     assert "    resposta de Haiku" in arquivo                   # completa no arquivo
