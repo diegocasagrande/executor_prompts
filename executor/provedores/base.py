@@ -38,6 +38,9 @@ class Resultado:
     tokens_entrada: int | None = None
     tokens_saida: int | None = None
     tokens_cache: int | None = None
+    tokens_raciocinio: int | None = None
+    turnos: int | None = None
+    system_prompt_usado: str | None = None  # quando o provedor envia outro que não o da linha
     total_tokens: int | None = None
     motivo_parada: str = ""
     latencia_ms: int | None = None

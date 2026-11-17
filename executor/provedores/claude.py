@@ -61,9 +61,11 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
         texto="".join(b.text for b in msg.content if getattr(b, "type", "") == "text"),
         modelo_efetivo=msg.model,
         id_resposta=msg.id,
-        tokens_entrada=u.input_tokens,
+        # input_tokens do Claude exclui o cache: soma para ter a entrada total (como Gemini e OpenAI)
+        tokens_entrada=u.input_tokens + cache_lido + cache_gravado,
         tokens_saida=u.output_tokens,
         tokens_cache=cache_lido,
+        turnos=1,
         # No Claude input_tokens não inclui os tokens de cache: soma tudo.
         total_tokens=u.input_tokens + u.output_tokens + cache_lido + cache_gravado,
         motivo_parada=msg.stop_reason or "",

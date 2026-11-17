@@ -78,6 +78,8 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
         tokens_entrada=u.prompt_token_count if u else None,
         tokens_saida=u.candidates_token_count if u else None,
         tokens_cache=u.cached_content_token_count if u else None,
+        tokens_raciocinio=u.thoughts_token_count if u else None,
+        turnos=1,
         total_tokens=u.total_token_count if u else None,
         motivo_parada=motivo,
         latencia_ms=latencia,

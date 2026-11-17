@@ -44,6 +44,8 @@ COLUNAS_EXECUCOES = [
     "Dono da API",
     "Final da chave",
     "System prompt",
+    "Tokens de raciocínio",
+    "Nº de turnos",
 ]
 
 COLUNAS_MODELOS = ["Fornecedor", "Modelos", "Nome de exibição", "Data da consulta"]
@@ -155,7 +157,7 @@ def _inferir_fornecedor(modelo: str) -> str:
 
 
 def preparar_execucoes(wb: Workbook) -> None:
-    """Garante o cabeçalho de 23 colunas, preservando as linhas já existentes.
+    """Garante o cabeçalho completo, preservando as linhas já existentes.
 
     As cinco primeiras colunas são as da planilha original, então linhas antigas
     ficam no mesmo lugar; as colunas de auditoria que faltam são preenchidas com o que é conhecido.
@@ -192,9 +194,11 @@ def preparar_execucoes(wb: Workbook) -> None:
             "Status": "sucesso",
             "Mensagem de erro": "registro migrado do layout antigo (campos de auditoria não disponíveis)",
         }
-        for nome, valor in padrao.items():
-            if registro.get(nome) in (None, ""):
-                registro[nome] = valor
+        # só completa linhas do layout original (sem ID de execução); execuções reais ficam como estão
+        if registro.get("ID da execução") in (None, ""):
+            for nome, valor in padrao.items():
+                if registro.get(nome) in (None, ""):
+                    registro[nome] = valor
         ws.append([registro.get(c) for c in COLUNAS_EXECUCOES])
 
 
