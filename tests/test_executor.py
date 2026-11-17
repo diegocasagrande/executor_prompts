@@ -433,3 +433,128 @@ def test_log_mostra_progresso_metadados_e_resposta(pasta, falsos, monkeypatch, t
     assert "=== Fim do lote | PromptExecucoesSumario_v00002.xlsx | 2 chamadas | 2 sucesso | 0 erro" in arquivo
     for nome in ("executor", "executor.resposta.terminal", "executor.resposta.arquivo"):
         logging.getLogger(nome).handlers.clear()
+
+
+# ---------------------------------------------------------------- isolamento entre execuções
+# Duas chamadas seguidas no mesmo processo: a segunda requisição não pode conter nada da primeira.
+
+PRIMEIRO, SEGUNDO = "Memorize a palavra-código ABACAXI-7391.", "Qual palavra-código eu pedi?"
+
+
+def _sem_vazamento(corpo: str):
+    assert "ABACAXI" not in corpo and "Memorize" not in corpo
+
+
+def test_isolamento_claude_api(monkeypatch):
+    import anthropic
+    from executor.provedores import claude
+
+    corpos = []
+    ok = {"id": "m", "type": "message", "role": "assistant", "model": "m", "content": [{"type": "text", "text": "x"}],
+          "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    def handler(req):
+        corpos.append(req.content.decode())
+        return httpx2.Response(200, json=ok)
+
+    monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
+        api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
+    claude.executar("m", PRIMEIRO, Parametros())
+    claude.executar("m", SEGUNDO, Parametros())
+    segundo = json.loads(corpos[1])
+    assert segundo["messages"] == [{"role": "user", "content": SEGUNDO}]
+    _sem_vazamento(corpos[1])
+
+
+def test_isolamento_openai(monkeypatch):
+    import openai
+    from executor.provedores import openai_
+
+    corpos = []
+    ok = {"id": "resp_1", "object": "response", "created_at": 1, "model": "g", "status": "completed",
+          "output": [], "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
+          "usage": {"input_tokens": 1, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 1,
+                    "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 2}}
+
+    def handler(req):
+        corpos.append(req.content.decode())
+        return httpx.Response(200, json=ok)
+
+    monkeypatch.setattr(openai_, "_cliente", lambda: openai.OpenAI(
+        api_key="x", max_retries=0, http_client=httpx.Client(transport=httpx.MockTransport(handler))))
+    openai_.executar("g", PRIMEIRO, Parametros())
+    openai_.executar("g", SEGUNDO, Parametros())
+    segundo = json.loads(corpos[1])
+    assert segundo["input"] == SEGUNDO
+    assert "previous_response_id" not in segundo and "conversation" not in segundo
+    _sem_vazamento(corpos[1])
+
+
+def test_isolamento_gemini(monkeypatch):
+    from google import genai
+    from google.genai import types
+    from executor.provedores import gemini
+
+    corpos = []
+    ok = {"candidates": [{"content": {"role": "model", "parts": [{"text": "x"}]}, "finishReason": "STOP"}],
+          "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}}
+
+    def handler(req):
+        corpos.append(req.content.decode())
+        return httpx.Response(200, json=ok)
+
+    monkeypatch.setattr(gemini, "_cliente", lambda: genai.Client(
+        api_key="x", http_options=types.HttpOptions(httpx_client=httpx.Client(transport=httpx.MockTransport(handler)))))
+    gemini.executar("g", PRIMEIRO, Parametros())
+    gemini.executar("g", SEGUNDO, Parametros())
+    segundo = json.loads(corpos[1])
+    assert len(segundo["contents"]) == 1 and segundo["contents"][0]["parts"] == [{"text": SEGUNDO}]
+    _sem_vazamento(corpos[1])
+
+
+def test_isolamento_claude_code(monkeypatch):
+    from pathlib import Path as _P
+    from executor.provedores import claude_code
+
+    chamadas, pastas = [], []
+
+    def run(cmd, **kw):
+        chamadas.append((cmd, kw))
+        pastas.append((kw["cwd"], _P(kw["cwd"]).exists(), list(_P(kw["cwd"]).iterdir())))
+        import subprocess
+        return subprocess.CompletedProcess(cmd, 0, stdout=_saida_cli(), stderr="")
+
+    monkeypatch.setattr(claude_code.subprocess, "run", run)
+    claude_code.executar("haiku", PRIMEIRO, Parametros())
+    claude_code.executar("haiku", SEGUNDO, Parametros())
+
+    (cmd1, kw1), (cmd2, kw2) = chamadas
+    assert kw2["input"] == SEGUNDO and cmd1 == cmd2           # mesmo comando; só o stdin muda
+    _sem_vazamento(" ".join(cmd2) + kw2["input"])
+    proibidos = {"--continue", "-c", "--resume", "-r", "--session-id", "--fork-session", "--add-dir"}
+    assert not proibidos & set(cmd2)
+    assert "--no-session-persistence" in cmd2
+    assert pastas[0][0] != pastas[1][0]                        # pasta nova a cada chamada
+    assert all(existe and conteudo == [] for _, existe, conteudo in pastas)  # vazia durante a chamada
+    assert not _P(pastas[0][0]).exists()                       # apagada ao terminar
+
+
+def test_isolamento_no_lote_cada_chamada_recebe_so_o_proprio_prompt(pasta, monkeypatch):
+    """Lote com dois prompts: cada provedor recebe só o texto e o system prompt da própria linha."""
+    recebidos = []
+
+    class Espiao:
+        def executar(self, modelo, prompt, p):
+            recebidos.append((prompt, p.system_prompt))
+            return Resultado(sucesso=True, texto="ok", modelo_efetivo=modelo)
+
+    monkeypatch.setitem(PROVEDORES, "claude", Espiao())
+    wb = load_workbook(pasta / V1.name)
+    ws = wb["Prompts"]
+    ws.append(["P2", SEGUNDO, "Pronto para executar", "Claude", "Haiku"])
+    ws["B2"] = PRIMEIRO
+    ws["F1"], ws["F2"] = "System prompt", "system da linha 2"
+    wb.save(pasta / V1.name)
+
+    servico.executar_lote({"claude": []})
+    assert recebidos == [(PRIMEIRO, "system da linha 2"), (SEGUNDO, None)]
