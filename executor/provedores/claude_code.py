@@ -1,14 +1,19 @@
 """Claude pela assinatura: executa `claude -p` (Claude Code) logado na conta do plano.
 
 Não usa chave de API. As execuções consomem o limite de uso da assinatura.
-Diferenças em relação ao fornecedor `claude` (API): o Claude Code acrescenta o próprio
-system prompt, não permite fixar temperatura nem limitar tokens de saída, e as ferramentas
-são desabilitadas para a chamada ser apenas texto.
+Isolamento da chamada, para o resultado não ser contaminado pelo ambiente de programação:
+- o system prompt padrão do Claude Code (assistente de programação, com diretório, git e
+  CLAUDE.md) é SUBSTITUÍDO pelo da linha ou por CLAUDE_CODE_SYSTEM_PROMPT_PADRAO;
+- roda num diretório temporário vazio, sem ferramentas, sem MCP e sem arquivos de configuração.
+
+Limites que continuam: não há controle de temperatura nem de máximo de tokens, e o modelo
+pode usar raciocínio estendido (registrado em "Tokens de raciocínio").
 """
 
 import json
 import os
 import subprocess
+import tempfile
 import time
 
 from executor import config
@@ -16,7 +21,6 @@ from executor.provedores.base import Parametros, Resultado
 
 FORNECEDOR = "claude_code"
 NAO_SUPORTADO = "não suportada"
-FERRAMENTAS_DESABILITADAS = "Bash,Edit,Write,Read,Glob,Grep,WebSearch,WebFetch,Task,NotebookEdit"
 TRANSITORIOS = {408, 429, 500, 502, 503, 504, 529}
 # Aliases aceitos pelo parâmetro --model do CLI (o CLI não lista modelos).
 ALIASES = [("haiku", "alias do Claude Code"), ("sonnet", "alias do Claude Code"), ("opus", "alias do Claude Code")]
@@ -34,25 +38,31 @@ def _ambiente() -> dict:
     return env
 
 
+def _system_prompt(p: Parametros) -> str:
+    return p.system_prompt or config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO
+
+
 def _comando(modelo: str, p: Parametros) -> list[str]:
-    cmd = [
+    return [
         config.CLAUDE_CODE_BIN, "-p",
         "--output-format", "json",
         "--no-session-persistence",
-        "--disallowedTools", FERRAMENTAS_DESABILITADAS,
         "--model", modelo,
+        "--system-prompt", _system_prompt(p),  # substitui o prompt de programação
+        "--tools", "",                         # nenhuma ferramenta
+        "--strict-mcp-config",                 # nenhum servidor MCP
+        "--setting-sources", "",               # ignora configurações de usuário/projeto
     ]
-    if p.system_prompt:
-        cmd += ["--append-system-prompt", p.system_prompt]
-    return cmd
 
 
 def _uma_chamada(modelo: str, prompt: str, p: Parametros) -> dict:
     try:
-        proc = subprocess.run(
-            _comando(modelo, p), input=prompt, capture_output=True, text=True, encoding="utf-8",
-            timeout=config.CLAUDE_CODE_TIMEOUT, env=_ambiente(), cwd=config.RAIZ,
-        )
+        # diretório vazio: sem repositório, git status nem CLAUDE.md no contexto
+        with tempfile.TemporaryDirectory(prefix="executor_prompts_") as vazio:
+            proc = subprocess.run(
+                _comando(modelo, p), input=prompt, capture_output=True, text=True, encoding="utf-8",
+                timeout=config.CLAUDE_CODE_TIMEOUT, env=_ambiente(), cwd=vazio,
+            )
     except subprocess.TimeoutExpired as erro:
         raise _Transitorio(f"tempo esgotado ({config.CLAUDE_CODE_TIMEOUT}s)") from erro
 
@@ -93,7 +103,8 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
     dono = " | ".join(x for x in (config.dono(FORNECEDOR), "assinatura") if x)
     if dados is None:
         return Resultado(sucesso=False, erro=erro_final, tentativas=tentativas,
-                         temperatura_usada=NAO_SUPORTADO, dono_api=dono)
+                         temperatura_usada=NAO_SUPORTADO, dono_api=dono,
+                         system_prompt_usado=_system_prompt(p))
 
     u = dados.get("usage") or {}
     entrada = u.get("input_tokens") or 0
@@ -101,21 +112,26 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
     cache_lido = u.get("cache_read_input_tokens") or 0
     cache_gravado = u.get("cache_creation_input_tokens") or 0
     modelos_usados = dados.get("modelUsage") or {}
+    raciocinio = (u.get("output_tokens_details") or {}).get("thinking_tokens")
 
     return Resultado(
         sucesso=True,
         texto=dados.get("result") or "",
         modelo_efetivo=next(iter(modelos_usados), modelo),
         id_resposta=dados.get("session_id") or "",
-        tokens_entrada=entrada,
+        # input_tokens do Claude exclui o cache: soma para ter a entrada total
+        tokens_entrada=entrada + cache_lido + cache_gravado,
         tokens_saida=saida,
         tokens_cache=cache_lido,
+        tokens_raciocinio=raciocinio,
+        turnos=dados.get("num_turns"),
         total_tokens=entrada + saida + cache_lido + cache_gravado,
         motivo_parada=dados.get("stop_reason") or "",
         latencia_ms=latencia,
         tentativas=tentativas,
         dono_api=dono,
         temperatura_usada=NAO_SUPORTADO,
+        system_prompt_usado=_system_prompt(p),
     )
 
 

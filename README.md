@@ -20,7 +20,7 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
 | Aba | Uso |
 |---|---|
 | **Prompts** | Entrada. A = ID, B = Prompt, C = Status, D = Fornecedor (opcional), E = Modelo (opcional, ID exato), F = System prompt (opcional) |
-| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (23 colunas; A = Identificador Único, B = Texto do Resultado) |
+| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (25 colunas; A = Identificador Único, B = Texto do Resultado) |
 | **Sumário** | Recalculado ao fim de cada execução: sucesso/erro por fornecedor; execuções, tokens e latência média por modelo |
 | **Modelos** | Catálogo de modelos por fornecedor, preenchido por `GET /modelos/{fornecedor}` |
 
@@ -77,16 +77,19 @@ O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `clau
 - Uma linha da aba Prompts com Fornecedor `Claude` roda por aqui quando a requisição pede só `assinatura`. Se a requisição também pedir `claude`, a linha vai pela API.
 - Os modelos são os aliases do CLI (`haiku`, `sonnet`, `opus`) ou um ID completo; a coluna **Modelo utilizado** registra o que respondeu. O CLI não lista modelos: `GET /modelos/assinatura` grava os três aliases.
 - `ANTHROPIC_API_KEY` é removida do ambiente da chamada, para o CLI não cobrar a API sem você perceber.
-- Limitações: o Claude Code acrescenta o próprio system prompt, as ferramentas são desabilitadas, não há controle de temperatura nem de máximo de tokens, e o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
+- Isolamento: o system prompt padrão do Claude Code (assistente de programação, com diretório, git e CLAUDE.md) é **substituído** pelo da coluna F ou, se vazia, por `CLAUDE_CODE_SYSTEM_PROMPT_PADRAO`. A chamada roda num diretório temporário vazio, sem ferramentas, sem MCP e sem arquivos de configuração. O system prompt efetivamente enviado fica na coluna *System prompt*.
+- Limitações: não há controle de temperatura nem de máximo de tokens; o modelo pode usar raciocínio estendido; o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
+- O alias `haiku` pode apontar para uma versão diferente da que você espera (na v00004 respondeu `claude-haiku-4-5-20251001`). Para fixar a versão, use o ID completo do modelo.
 - Não verifiquei se as condições do plano permitem execuções automatizadas em lote por este caminho; confira antes de usar em larga escala.
 
 ## Colunas da aba Execuções
 
-**Identificador Único** (ID do prompt) · **Texto do Resultado** · **Modelo utilizado** (o que respondeu) · Data da Execução · Hora da Execução (as cinco da planilha original, nesta ordem) · ID da execução · Fornecedor · Modelo solicitado · ID da resposta · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Dono da API · Final da chave · System prompt
+**Identificador Único** (ID do prompt) · **Texto do Resultado** · **Modelo utilizado** (o que respondeu) · Data da Execução · Hora da Execução (as cinco da planilha original, nesta ordem) · ID da execução · Fornecedor · Modelo solicitado · ID da resposta · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Dono da API · Final da chave · System prompt · Tokens de raciocínio · Nº de turnos
 
 Observações para comparar fornecedores:
 
-- **Tokens:** no Claude, `input_tokens` não inclui o cache. Por isso o total do Claude soma entrada + saída + cache lido + cache gravado. Cada fornecedor usa seu próprio tokenizador, então as contagens não são comparáveis entre fornecedores.
+- **Tokens de entrada:** entrada total, incluindo o que veio do cache, nos três fornecedores. No Claude a API informa `input_tokens` sem o cache, então o executor soma `input_tokens` + cache lido + cache gravado. *Tokens de cache* mostra só a parte lida do cache.
+- **Tokens de saída × texto:** os tokens de saída incluem o raciocínio interno quando o modelo o usa (Claude e OpenAI), por isso podem ser muito maiores que o texto gravado. A coluna *Tokens de raciocínio* separa essa parte (no Gemini ela não está incluída nos tokens de saída, mas sim no total). *Nº de turnos* mostra quantas chamadas ao modelo a execução fez (deve ser 1). Cada fornecedor usa seu próprio tokenizador, então as contagens não são comparáveis entre fornecedores.
 - **Temperatura:** a Messages API atual da Anthropic não aceita `temperature`, e o Claude registra `não suportada`. Na OpenAI e no Gemini, se o modelo recusar o parâmetro, a chamada é refeita sem ele e a coluna também registra `não suportada`.
 - **Dono da API:** vem das variáveis `*_DONO` do `.env`. Quando o fornecedor informa nos headers, são acrescentados `org=` (Anthropic e OpenAI) e `projeto=` (OpenAI).
 

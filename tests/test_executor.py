@@ -15,7 +15,8 @@ from executor.provedores import PROVEDORES
 from executor.provedores.base import Parametros, Resultado
 
 RAIZ = Path(__file__).resolve().parent.parent
-V1 = RAIZ / "planilha" / "PromptExecucoesSumario_v00001.xlsx"
+# cópia fixa da planilha original, independente das versões de trabalho em planilha/
+V1 = RAIZ / "tests" / "dados" / "PromptExecucoesSumario_v00001.xlsx"
 
 
 @pytest.fixture
@@ -68,7 +69,7 @@ def test_execucao_gera_nova_versao_e_preserva_a_anterior(pasta, falsos):
 
     wb = _abrir(pasta, 2)
     execucoes = planilha.ler_execucoes(wb)
-    assert [c.value for c in wb["Execuções"][1]][:23] == planilha.COLUNAS_EXECUCOES
+    assert [c.value for c in wb["Execuções"][1]][:len(planilha.COLUNAS_EXECUCOES)] == planilha.COLUNAS_EXECUCOES
     # A e B são o identificador do prompt e o texto do resultado, como na planilha original
     assert [c.value for c in wb["Execuções"][1]][:2] == ["Identificador Único", "Texto do Resultado"]
     assert execucoes_texto(wb)[-1][0] == "PROMPT_D_V1" and execucoes_texto(wb)[-1][1] == "resposta de Haiku"
@@ -168,7 +169,7 @@ def test_parsing_claude(monkeypatch):
     monkeypatch.setattr(config, "dono", lambda f: "Diego")
     r = claude.executar("claude-haiku-5-5", "oi", Parametros())
     assert r.sucesso and r.texto == "B" and r.id_resposta == "msg_1"
-    assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (100, 20, 30, 155)
+    assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (135, 20, 30, 155)
     assert r.dono_api == "Diego | org=org-9" and r.temperatura_usada == "não suportada"
 
 
@@ -201,6 +202,7 @@ def test_parsing_openai_e_temperatura_nao_suportada(monkeypatch):
     r = openai_.executar("gpt-x", "oi", Parametros(temperatura=0))
     assert r.sucesso and r.texto == "A" and r.modelo_efetivo == "gpt-x-2026"
     assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (50, 7, 10, 57)
+    assert r.tokens_raciocinio == 3
     assert r.temperatura_usada == "não suportada" and r.tentativas == 2
     assert r.dono_api == "org=org-x | projeto=proj-y"
     assert len(pedidos) == 2
@@ -222,6 +224,7 @@ def test_parsing_gemini(monkeypatch):
     r = gemini.executar("gemini-3.5-flash-lite", "oi", Parametros())
     assert r.sucesso and r.texto == "B" and r.id_resposta == "abc" and r.motivo_parada == "STOP"
     assert (r.tokens_entrada, r.tokens_saida, r.total_tokens) == (40, 9, 60)
+    assert r.tokens_raciocinio == 11
 
 
 def test_retentativa_em_503(monkeypatch):
@@ -251,8 +254,9 @@ def _saida_cli(**extra):
     base = {
         "type": "result", "subtype": "success", "is_error": False, "result": "B", "session_id": "sess-1",
         "stop_reason": "end_turn", "terminal_reason": "completed",
+        "num_turns": 1,
         "usage": {"input_tokens": 12, "output_tokens": 4, "cache_read_input_tokens": 100,
-                  "cache_creation_input_tokens": 8},
+                  "cache_creation_input_tokens": 8, "output_tokens_details": {"thinking_tokens": 3}},
         "modelUsage": {"claude-haiku-5-5": {"inputTokens": 12}},
     }
     base.update(extra)
@@ -282,10 +286,18 @@ def test_claude_code_sucesso(monkeypatch):
 
     cmd, kw = chamadas[0]
     assert cmd[:2] == ["claude", "-p"] and "--model" in cmd and cmd[cmd.index("--model") + 1] == "haiku"
-    assert "--append-system-prompt" in cmd and "--disallowedTools" in cmd
+    assert cmd[cmd.index("--system-prompt") + 1] == "seja breve"
+    assert cmd[cmd.index("--tools") + 1] == "" and "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert "--append-system-prompt" not in cmd
     assert kw["input"] == "oi" and "ANTHROPIC_API_KEY" not in kw["env"]
+    # roda fora do repositório, num diretório temporário
+    from pathlib import Path as _P
+    assert _P(kw["cwd"]).name.startswith("executor_prompts_") and _P(kw["cwd"]) != config.RAIZ
     assert r.sucesso and r.texto == "B" and r.id_resposta == "sess-1" and r.modelo_efetivo == "claude-haiku-5-5"
-    assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (12, 4, 100, 124)
+    # entrada total = input + cache lido + cache gravado
+    assert (r.tokens_entrada, r.tokens_saida, r.tokens_cache, r.total_tokens) == (120, 4, 100, 124)
+    assert r.tokens_raciocinio == 3 and r.turnos == 1 and r.system_prompt_usado == "seja breve"
     assert r.dono_api == "Diego | assinatura" and r.temperatura_usada == "não suportada"
 
 
@@ -368,3 +380,29 @@ def test_api_nao_aceita_system_prompt_na_requisicao():
     import api
 
     assert "system_prompt" not in api.RequisicaoExecucao.model_fields
+
+
+def test_claude_code_sem_system_prompt_na_linha_usa_o_neutro(monkeypatch):
+    from executor.provedores import claude_code
+
+    chamadas = []
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([_saida_cli()], chamadas))
+    r = claude_code.executar("haiku", "oi", Parametros())
+    cmd = chamadas[0][0]
+    assert cmd[cmd.index("--system-prompt") + 1] == config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO
+    assert r.system_prompt_usado == config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO
+
+
+def test_migracao_preserva_linhas_do_layout_de_23_colunas(pasta, falsos):
+    """Planilhas geradas antes das colunas de raciocínio/turnos continuam válidas."""
+    servico.executar_lote({"claude": []})
+    wb = _abrir(pasta, 2)
+    ws = wb["Execuções"]
+    ws.delete_cols(len(planilha.COLUNAS_EXECUCOES) - 1, 2)  # simula o layout antigo
+    ws["C2"].value  # noqa: B018
+    wb["Prompts"]["C2"] = "Pronto para executar"
+    wb.save(pasta / "PromptExecucoesSumario_v00002.xlsx")
+    servico.executar_lote({"claude": []})
+    ex = planilha.ler_execucoes(_abrir(pasta, 3))
+    assert len(ex) == 3 and ex[1]["Texto do Resultado"] == "resposta de Haiku" and ex[1]["Tokens de entrada"] == 10
+    assert ex[1]["Mensagem de erro"] in (None, "")  # execução real não vira "migrada"

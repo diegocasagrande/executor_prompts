@@ -99,7 +99,9 @@ def _registro(prompt_id, fornecedor, modelo, r: Resultado, p: Parametros) -> dic
         "Nº de tentativas": r.tentativas,
         "Dono da API": r.dono_api,
         "Final da chave": config.final_da_chave(fornecedor),
-        "System prompt": p.system_prompt or "",
+        "System prompt": r.system_prompt_usado or p.system_prompt or "",
+        "Tokens de raciocínio": r.tokens_raciocinio,
+        "Nº de turnos": r.turnos,
     }
 
 

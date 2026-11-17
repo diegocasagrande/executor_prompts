@@ -20,6 +20,11 @@ MAX_TENTATIVAS = int(os.getenv("MAX_TENTATIVAS", "5"))
 # Claude pela assinatura (Claude Code logado), sem chave de API
 CLAUDE_CODE_BIN = os.getenv("CLAUDE_CODE_BIN", "claude")
 CLAUDE_CODE_TIMEOUT = int(os.getenv("CLAUDE_CODE_TIMEOUT", "300"))
+# System prompt neutro enviado ao Claude Code quando a linha não tem system prompt.
+# Ele SUBSTITUI o system prompt padrão do Claude Code (assistente de programação).
+CLAUDE_CODE_SYSTEM_PROMPT_PADRAO = os.getenv(
+    "CLAUDE_CODE_SYSTEM_PROMPT_PADRAO", "Responda à solicitação do usuário."
+).strip()
 
 # Fornecedor -> (variável da chave, variável do dono)
 VARIAVEIS = {
