@@ -90,6 +90,7 @@ Observações para comparar fornecedores:
 
 - **Tokens de entrada:** entrada total, incluindo o que veio do cache, nos três fornecedores. No Claude a API informa `input_tokens` sem o cache, então o executor soma `input_tokens` + cache lido + cache gravado. *Tokens de cache* mostra só a parte lida do cache.
 - **Tokens de saída × texto:** os tokens de saída incluem o raciocínio interno quando o modelo o usa (Claude e OpenAI), por isso podem ser muito maiores que o texto gravado. A coluna *Tokens de raciocínio* separa essa parte (no Gemini ela não está incluída nos tokens de saída, mas sim no total). *Nº de turnos* mostra quantas chamadas ao modelo a execução fez (deve ser 1). Cada fornecedor usa seu próprio tokenizador, então as contagens não são comparáveis entre fornecedores.
+- **Streaming no Claude (API):** as chamadas usam streaming, porque o SDK da Anthropic recusa chamadas comuns com `max_tokens` acima de ~21 mil (podem passar de 10 minutos). A resposta final e as colunas são as mesmas; um erro de sobrecarga no meio do fluxo é repetido como os demais erros transitórios.
 - **Temperatura:** a Messages API atual da Anthropic não aceita `temperature`, e o Claude registra `não suportada`. Na OpenAI e no Gemini, se o modelo recusar o parâmetro, a chamada é refeita sem ele e a coluna também registra `não suportada`.
 - **Dono da API:** vem das variáveis `*_DONO` do `.env`. Quando o fornecedor informa nos headers, são acrescentados `org=` (Anthropic e OpenAI) e `projeto=` (OpenAI).
 

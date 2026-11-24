@@ -7,6 +7,8 @@ from executor.provedores.base import Parametros, Resultado, com_retentativas
 
 FORNECEDOR = "claude"
 TRANSITORIOS = {408, 409, 429, 500, 502, 503, 504, 529}
+# Com streaming, um erro que chega no meio do fluxo vem com status HTTP 200 e o tipo no corpo.
+TIPOS_TRANSITORIOS = {"overloaded_error", "rate_limit_error", "api_error", "timeout_error"}
 
 
 def _cliente():
@@ -16,7 +18,13 @@ def _cliente():
 def _eh_transitorio(erro):
     if isinstance(erro, anthropic.APIConnectionError):
         return True
-    return isinstance(erro, anthropic.APIStatusError) and erro.status_code in TRANSITORIOS
+    if not isinstance(erro, anthropic.APIStatusError):
+        return False
+    if erro.status_code in TRANSITORIOS:
+        return True
+    corpo = erro.body if isinstance(erro.body, dict) else {}
+    tipo = (corpo.get("error") or {}).get("type") if isinstance(corpo.get("error"), dict) else None
+    return tipo in TIPOS_TRANSITORIOS
 
 
 # A Messages API atual não aceita mais temperature/top_p: o parâmetro não é enviado

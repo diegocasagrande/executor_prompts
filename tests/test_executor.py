@@ -601,3 +601,46 @@ def test_claude_max_tokens_alto_usa_streaming(monkeypatch):
     r = claude.executar("claude-sonnet-5-5", "oi", Parametros(max_tokens=32000))
     assert r.sucesso and r.texto == "soneto" and r.tokens_saida == 25000
     assert enviado["max_tokens"] == 32000 and enviado["stream"] is True
+
+
+def test_claude_streaming_repete_erro_de_sobrecarga_no_meio_do_fluxo(monkeypatch):
+    """Com streaming, a sobrecarga pode chegar como evento 'error' depois do HTTP 200."""
+    import anthropic
+    from executor.provedores import base, claude
+
+    monkeypatch.setattr(base.time, "sleep", lambda s: None)
+    inicio = {"id": "m", "type": "message", "role": "assistant", "model": "m", "content": [],
+              "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 0}}
+    erro = (f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': inicio})}\n\n"
+            'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n').encode()
+    ok = {"id": "msg_4", "type": "message", "role": "assistant", "model": "m",
+          "content": [{"type": "text", "text": "fim"}], "stop_reason": "end_turn", "stop_sequence": None,
+          "usage": {"input_tokens": 1, "output_tokens": 1}}
+    n = {"c": 0}
+
+    def handler(request):
+        n["c"] += 1
+        conteudo = erro if n["c"] < 3 else _sse_claude(ok)
+        return httpx2.Response(200, content=conteudo, headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
+        api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
+    r = claude.executar("m", "oi", Parametros())
+    assert r.sucesso and r.texto == "fim" and r.tentativas == 3
+
+
+def test_claude_streaming_erro_definitivo_no_fluxo_nao_repete(monkeypatch):
+    import anthropic
+    from executor.provedores import claude
+
+    erro = b'event: error\ndata: {"type":"error","error":{"type":"invalid_request_error","message":"x"}}\n\n'
+    n = {"c": 0}
+
+    def handler(request):
+        n["c"] += 1
+        return httpx2.Response(200, content=erro, headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
+        api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
+    r = claude.executar("m", "oi", Parametros())
+    assert not r.sucesso and r.tentativas == 1 and n["c"] == 1
