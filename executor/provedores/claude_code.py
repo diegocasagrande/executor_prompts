@@ -77,6 +77,8 @@ def _uma_chamada(modelo: str, prompt: str, p: Parametros) -> dict:
     if dados.get("is_error"):
         status = dados.get("api_error_status")
         mensagem = f"{dados.get('terminal_reason') or 'erro'}: {dados.get('result') or ''}".strip()
+        if "auth" in str(dados.get("result")).lower():
+            mensagem += " (o CLI não está logado neste ambiente: rode `claude auth login` e scripts/diagnostico_claude_code.py)"
         if status in TRANSITORIOS:
             raise _Transitorio(mensagem)
         raise RuntimeError(mensagem)

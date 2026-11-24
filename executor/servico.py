@@ -29,7 +29,9 @@ def _normalizar_selecao(selecao: dict[str, list[str]]) -> tuple[dict[str, list[s
         if not fornecedor:
             raise ErroDeEntrada(f"Fornecedor desconhecido: {nome!r}. Use gemini, claude ou openai.")
         if not config.tem_credencial(fornecedor):
-            ignorados.append({"fornecedor": NOMES[fornecedor], "motivo": "sem credencial no .env"})
+            motivo = ("comando claude não encontrado no PATH do servidor (ajuste CLAUDE_CODE_BIN no .env "
+                      "ou rode scripts/diagnostico_claude_code.py)") if fornecedor == "claude_code" else "sem credencial no .env"
+            ignorados.append({"fornecedor": NOMES[fornecedor], "motivo": motivo})
             continue
         validos.setdefault(fornecedor, []).extend(m.strip() for m in (modelos or []) if m and m.strip())
     return validos, ignorados
