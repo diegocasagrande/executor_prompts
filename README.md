@@ -80,6 +80,7 @@ O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `clau
 - Isolamento: o system prompt padrão do Claude Code (assistente de programação, com diretório, git e CLAUDE.md) é **substituído** pelo da coluna F ou, se vazia, por `CLAUDE_CODE_SYSTEM_PROMPT_PADRAO`. A chamada roda num diretório temporário vazio, sem ferramentas, sem MCP e sem arquivos de configuração. O system prompt efetivamente enviado fica na coluna *System prompt*.
 - Limitações: não há controle de temperatura nem de máximo de tokens; o modelo pode usar raciocínio estendido; o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
 - O alias `haiku` pode apontar para uma versão diferente da que você espera (na v00004 respondeu `claude-haiku-4-5-20251001`). Para fixar a versão, use o ID completo do modelo.
+- **Se não funcionar**, rode `python scripts/diagnostico_claude_code.py` no mesmo terminal/venv do `uvicorn`: ele testa PATH, login, chamada mínima e o comando exato do executor, e para na etapa que falha com a sugestão de correção.
 - Não verifiquei se as condições do plano permitem execuções automatizadas em lote por este caminho; confira antes de usar em larga escala.
 
 ## Colunas da aba Execuções
