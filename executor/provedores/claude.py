@@ -7,6 +7,8 @@ from executor.provedores.base import Parametros, Resultado, com_retentativas
 
 FORNECEDOR = "claude"
 TRANSITORIOS = {408, 409, 429, 500, 502, 503, 504, 529}
+# Com streaming, um erro que chega no meio do fluxo vem com status HTTP 200 e o tipo no corpo.
+TIPOS_TRANSITORIOS = {"overloaded_error", "rate_limit_error", "api_error", "timeout_error"}
 
 
 def _cliente():
@@ -16,7 +18,13 @@ def _cliente():
 def _eh_transitorio(erro):
     if isinstance(erro, anthropic.APIConnectionError):
         return True
-    return isinstance(erro, anthropic.APIStatusError) and erro.status_code in TRANSITORIOS
+    if not isinstance(erro, anthropic.APIStatusError):
+        return False
+    if erro.status_code in TRANSITORIOS:
+        return True
+    corpo = erro.body if isinstance(erro.body, dict) else {}
+    tipo = (corpo.get("error") or {}).get("type") if isinstance(corpo.get("error"), dict) else None
+    return tipo in TIPOS_TRANSITORIOS
 
 
 # A Messages API atual não aceita mais temperature/top_p: o parâmetro não é enviado
@@ -36,7 +44,13 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
         }
         if p.system_prompt:
             args["system"] = p.system_prompt
-        return cliente.messages.with_raw_response.create(**args)
+        # Streaming: o SDK da Anthropic recusa chamadas sem streaming com max_tokens alto
+        # (acima de ~21 mil tokens), por poderem passar de 10 minutos. O resultado final
+        # é o mesmo de uma chamada comum.
+        with cliente.messages.stream(**args) as fluxo:
+            mensagem = fluxo.get_final_message()
+            headers = fluxo.response.headers
+        return mensagem, headers
 
     try:
         bruto, tentativas, latencia = com_retentativas(chamada, _eh_transitorio, config.MAX_TENTATIVAS)
@@ -49,11 +63,11 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
             dono_api=config.dono(FORNECEDOR),
         )
 
-    msg = bruto.parse()
+    msg, headers = bruto
     u = msg.usage
     cache_lido = u.cache_read_input_tokens or 0
     cache_gravado = u.cache_creation_input_tokens or 0
-    org = bruto.headers.get("anthropic-organization-id", "")
+    org = headers.get("anthropic-organization-id", "")
     dono = " | ".join(x for x in (config.dono(FORNECEDOR), f"org={org}" if org else "") if x)
 
     return Resultado(
