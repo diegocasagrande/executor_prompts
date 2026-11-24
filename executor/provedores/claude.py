@@ -36,7 +36,13 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
         }
         if p.system_prompt:
             args["system"] = p.system_prompt
-        return cliente.messages.with_raw_response.create(**args)
+        # Streaming: o SDK da Anthropic recusa chamadas sem streaming com max_tokens alto
+        # (acima de ~21 mil tokens), por poderem passar de 10 minutos. O resultado final
+        # é o mesmo de uma chamada comum.
+        with cliente.messages.stream(**args) as fluxo:
+            mensagem = fluxo.get_final_message()
+            headers = fluxo.response.headers
+        return mensagem, headers
 
     try:
         bruto, tentativas, latencia = com_retentativas(chamada, _eh_transitorio, config.MAX_TENTATIVAS)
@@ -49,11 +55,11 @@ def executar(modelo: str, prompt: str, p: Parametros) -> Resultado:
             dono_api=config.dono(FORNECEDOR),
         )
 
-    msg = bruto.parse()
+    msg, headers = bruto
     u = msg.usage
     cache_lido = u.cache_read_input_tokens or 0
     cache_gravado = u.cache_creation_input_tokens or 0
-    org = bruto.headers.get("anthropic-organization-id", "")
+    org = headers.get("anthropic-organization-id", "")
     dono = " | ".join(x for x in (config.dono(FORNECEDOR), f"org={org}" if org else "") if x)
 
     return Resultado(

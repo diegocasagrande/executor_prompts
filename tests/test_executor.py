@@ -152,6 +152,26 @@ def _transporte(corpo: dict, headers: dict | None = None, status: int = 200):
     return httpx.MockTransport(handler)
 
 
+def _sse_claude(corpo: dict) -> bytes:
+    """Converte uma resposta da Messages API no fluxo SSE equivalente (o provedor usa streaming)."""
+    def ev(tipo, dados):
+        return f"event: {tipo}\ndata: {json.dumps(dados)}\n\n"
+
+    inicio = dict(corpo, content=[], stop_reason=None, stop_sequence=None)
+    partes = [ev("message_start", {"type": "message_start", "message": inicio})]
+    for i, bloco in enumerate(corpo["content"]):
+        partes.append(ev("content_block_start", {"type": "content_block_start", "index": i,
+                                                 "content_block": {"type": "text", "text": ""}}))
+        partes.append(ev("content_block_delta", {"type": "content_block_delta", "index": i,
+                                                 "delta": {"type": "text_delta", "text": bloco["text"]}}))
+        partes.append(ev("content_block_stop", {"type": "content_block_stop", "index": i}))
+    partes.append(ev("message_delta", {"type": "message_delta",
+                                       "delta": {"stop_reason": corpo["stop_reason"], "stop_sequence": None},
+                                       "usage": {"output_tokens": corpo["usage"]["output_tokens"]}}))
+    partes.append(ev("message_stop", {"type": "message_stop"}))
+    return "".join(partes).encode()
+
+
 def test_parsing_claude(monkeypatch):
     import anthropic
     from executor.provedores import claude
@@ -163,7 +183,9 @@ def test_parsing_claude(monkeypatch):
                   "cache_creation_input_tokens": 5},
     }
     transporte = httpx2.MockTransport(
-        lambda req: httpx2.Response(200, json=corpo, headers={"anthropic-organization-id": "org-9"}))
+        lambda req: httpx2.Response(200, content=_sse_claude(corpo),
+                                    headers={"anthropic-organization-id": "org-9",
+                                             "content-type": "text/event-stream"}))
     monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
         api_key="x", max_retries=0, http_client=httpx2.Client(transport=transporte)))
     monkeypatch.setattr(config, "dono", lambda f: "Diego")
@@ -240,7 +262,7 @@ def test_retentativa_em_503(monkeypatch):
         estado["n"] += 1
         if estado["n"] < 3:
             return httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error", "message": "x"}})
-        return httpx2.Response(200, json=ok)
+        return httpx2.Response(200, content=_sse_claude(ok), headers={"content-type": "text/event-stream"})
 
     monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
         api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
@@ -455,7 +477,7 @@ def test_isolamento_claude_api(monkeypatch):
 
     def handler(req):
         corpos.append(req.content.decode())
-        return httpx2.Response(200, json=ok)
+        return httpx2.Response(200, content=_sse_claude(ok), headers={"content-type": "text/event-stream"})
 
     monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
         api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
@@ -558,3 +580,24 @@ def test_isolamento_no_lote_cada_chamada_recebe_so_o_proprio_prompt(pasta, monke
 
     servico.executar_lote({"claude": []})
     assert recebidos == [(PRIMEIRO, "system da linha 2"), (SEGUNDO, None)]
+
+
+def test_claude_max_tokens_alto_usa_streaming(monkeypatch):
+    """Com max_tokens acima de ~21 mil, o SDK da Anthropic recusa chamadas sem streaming."""
+    import anthropic
+    from executor.provedores import claude
+
+    enviado = {}
+    corpo = {"id": "msg_3", "type": "message", "role": "assistant", "model": "claude-sonnet-5-5",
+             "content": [{"type": "text", "text": "soneto"}], "stop_reason": "end_turn", "stop_sequence": None,
+             "usage": {"input_tokens": 10, "output_tokens": 25000}}
+
+    def handler(request):
+        enviado.update(json.loads(request.content))
+        return httpx2.Response(200, content=_sse_claude(corpo), headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(claude, "_cliente", lambda: anthropic.Anthropic(
+        api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
+    r = claude.executar("claude-sonnet-5-5", "oi", Parametros(max_tokens=32000))
+    assert r.sucesso and r.texto == "soneto" and r.tokens_saida == 25000
+    assert enviado["max_tokens"] == 32000 and enviado["stream"] is True
