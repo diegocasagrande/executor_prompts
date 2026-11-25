@@ -21,7 +21,7 @@ from executor import config  # noqa: E402
 from executor.provedores import claude_code  # noqa: E402
 from executor.provedores.base import Parametros  # noqa: E402
 
-PROMPT = "Responda apenas: ok"
+PROMPT = "Reply only: ok"
 
 
 def etapa(titulo):
