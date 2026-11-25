@@ -20,7 +20,7 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
 | Aba | Uso |
 |---|---|
 | **Prompts** | Entrada. A = ID, B = Prompt, C = Status, D = Fornecedor (opcional), E = Modelo (opcional, ID exato), F = System prompt (opcional) |
-| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (25 colunas; A = Identificador Único, B = Texto do Resultado) |
+| **Execuções** | Log de auditoria. Cada chamada acrescenta uma linha (28 colunas; A = Identificador Único, B = Texto do Resultado) |
 | **Sumário** | Recalculado ao fim de cada execução: sucesso/erro por fornecedor; execuções, tokens e latência média por modelo |
 | **Modelos** | Catálogo de modelos por fornecedor, preenchido por `GET /modelos/{fornecedor}` |
 
@@ -37,6 +37,10 @@ Os arquivos ficam em `planilha/` com o nome `PromptExecucoesSumario_vNNNNN.xlsx`
 - Se ao menos uma chamada do prompt der certo, o Status muda para `Executado` na nova versão. Se todas falharem, ele continua `Pronto para executar`.
 - Quando não há nada a executar, nenhuma versão nova é criada.
 - Erros transitórios (429, 5xx, sobrecarga) são repetidos até `MAX_TENTATIVAS` vezes, com backoff exponencial.
+
+## Repetições
+
+Com `"repeticoes": 5`, cada prompt roda 5 vezes em cada modelo. Cada linha da aba Execuções registra **Nº da repetição** (1 a 5), **Total de repetições** (5) e o **ID do lote** (data, hora e um sufixo aleatório), que agrupa as chamadas de uma mesma requisição. Se o lote for rodado de novo, a numeração recomeça em 1 com outro ID de lote. A resposta do endpoint e o log mostram a repetição como `3/5`.
 
 ## Endpoints
 
@@ -85,7 +89,7 @@ O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `clau
 
 ## Colunas da aba Execuções
 
-**Identificador Único** (ID do prompt) · **Texto do Resultado** · **Modelo utilizado** (o que respondeu) · Data da Execução · Hora da Execução (as cinco da planilha original, nesta ordem) · ID da execução · Fornecedor · Modelo solicitado · ID da resposta · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Dono da API · Final da chave · System prompt · Tokens de raciocínio · Nº de turnos
+**Identificador Único** (ID do prompt) · **Texto do Resultado** · **Modelo utilizado** (o que respondeu) · Data da Execução · Hora da Execução (as cinco da planilha original, nesta ordem) · ID da execução · Fornecedor · Modelo solicitado · ID da resposta · Latência (ms) · Tokens de entrada · Tokens de saída · Tokens de cache · Total de tokens · Motivo de parada · Temperatura · Máximo de tokens de saída · Status · Mensagem de erro · Nº de tentativas · Dono da API · Final da chave · System prompt · Tokens de raciocínio · Nº de turnos · ID do lote · Nº da repetição · Total de repetições
 
 Observações para comparar fornecedores:
 
