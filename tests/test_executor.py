@@ -648,3 +648,47 @@ def test_claude_streaming_erro_definitivo_no_fluxo_nao_repete(monkeypatch):
         api_key="x", max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(handler))))
     r = claude.executar("m", "oi", Parametros())
     assert not r.sucesso and r.tentativas == 1 and n["c"] == 1
+
+
+# ---------------------------------------------------------------- idioma dos textos acrescentados
+
+def test_textos_enviados_pelo_executor_sao_em_ingles(monkeypatch):
+    """Nenhum texto acrescentado pelo executor pode estar em português (ele puxa a resposta para o português)."""
+    import re
+    from executor.provedores import claude_code
+
+    assert config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO == "Respond to the user's request." or \
+        not config.parece_portugues(config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO)
+    monkeypatch.setattr(config, "CLAUDE_CODE_SYSTEM_PROMPT_PADRAO", "Respond to the user's request.")
+    chamadas = []
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([_saida_cli()], chamadas))
+    claude_code.executar("haiku", "The prompt.", Parametros())
+    cmd = chamadas[0][0]
+    assert not config.parece_portugues(cmd[cmd.index("--system-prompt") + 1])
+
+    # scripts de verificação: os textos enviados aos modelos também são em inglês
+    for script in ("scripts/teste_isolamento.py", "scripts/diagnostico_claude_code.py"):
+        fonte = (RAIZ / script).read_text(encoding="utf-8")
+        enviados = re.findall(r'executar\(modelo, f?"([^"]+)"', fonte) + re.findall(r'^PROMPT = "([^"]+)"', fonte, re.M)
+        assert enviados or script.endswith("diagnostico_claude_code.py")
+        for texto in enviados:
+            assert not config.parece_portugues(texto), (script, texto)
+
+    exemplo = (RAIZ / ".env-exemplo").read_text(encoding="utf-8")
+    valor = re.search(r"^CLAUDE_CODE_SYSTEM_PROMPT_PADRAO=(.*)$", exemplo, re.M).group(1)
+    assert not config.parece_portugues(valor)
+
+
+def test_aviso_quando_system_prompt_padrao_esta_em_portugues(pasta, monkeypatch, caplog):
+    import logging
+    from executor.provedores import claude_code
+
+    monkeypatch.setattr(config, "tem_credencial", lambda f: True)
+    monkeypatch.setattr(config, "CLAUDE_CODE_SYSTEM_PROMPT_PADRAO", "Responda à solicitação do usuário.")
+    monkeypatch.setattr(claude_code.subprocess, "run", _fake_run([_saida_cli()], []))
+    logging.getLogger("executor").propagate = True
+    with caplog.at_level(logging.WARNING, logger="executor"):
+        servico.executar_lote({"claude_code": ["haiku"]})
+    assert any("parece estar em português" in r.message for r in caplog.records)
+    assert config.parece_portugues("Responda à solicitação do usuário.")
+    assert not config.parece_portugues("Respond to the user's request.")

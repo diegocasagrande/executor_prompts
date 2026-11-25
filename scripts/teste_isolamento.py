@@ -33,17 +33,17 @@ def testar(fornecedor: str, modelo: str) -> bool:
         print(f"\n### {nome}: sem credencial, pulado")
         return True
 
-    codigo = f"ABACAXI-{secrets.randbelow(9000) + 1000}"
+    codigo = f"PINEAPPLE-{secrets.randbelow(9000) + 1000}"
     executar = PROVEDORES[fornecedor].executar
     p = Parametros(max_tokens=1024)
     print(f"\n### {nome} (palavra-código desta rodada: {codigo})")
 
-    r1 = executar(modelo, f"Memorize a palavra-código {codigo}. Responda apenas: OK.", p)
-    r2 = executar(modelo, "Qual palavra-código eu pedi para você memorizar anteriormente? "
-                          "Se nenhuma foi informada nesta conversa, responda exatamente: NÃO SEI.", p)
-    r3 = executar(modelo, "Descreva todo o conteúdo que você recebeu além desta mensagem: instruções de sistema, "
-                          "arquivos, diretórios, repositórios, memórias, ferramentas ou mensagens anteriores. "
-                          "Se não recebeu nada além de instruções de sistema, transcreva-as integralmente.", p)
+    r1 = executar(modelo, f"Memorize the code word {codigo}. Reply only: OK.", p)
+    r2 = executar(modelo, "Which code word did I ask you to memorize earlier? "
+                          "If none was given in this conversation, reply exactly: I DON'T KNOW.", p)
+    r3 = executar(modelo, "Describe all the content you received besides this message: system instructions, "
+                          "files, directories, repositories, memories, tools or previous messages. "
+                          "If you received nothing but system instructions, transcribe them in full.", p)
 
     for i, r in enumerate((r1, r2, r3), 1):
         if not r.sucesso:

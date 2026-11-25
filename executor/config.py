@@ -22,9 +22,18 @@ CLAUDE_CODE_BIN = os.getenv("CLAUDE_CODE_BIN", "claude")
 CLAUDE_CODE_TIMEOUT = int(os.getenv("CLAUDE_CODE_TIMEOUT", "300"))
 # System prompt neutro enviado ao Claude Code quando a linha não tem system prompt.
 # Ele SUBSTITUI o system prompt padrão do Claude Code (assistente de programação).
+# Em inglês: todo texto que o executor acrescenta aos prompts é em inglês, porque um
+# system prompt em outro idioma faz o modelo responder nesse idioma.
 CLAUDE_CODE_SYSTEM_PROMPT_PADRAO = os.getenv(
-    "CLAUDE_CODE_SYSTEM_PROMPT_PADRAO", "Responda à solicitação do usuário."
+    "CLAUDE_CODE_SYSTEM_PROMPT_PADRAO", "Respond to the user's request."
 ).strip()
+
+_MARCAS_PORTUGUES = ("ã", "õ", "ç", "á", "é", "í", "ó", "ú", "ê", "â", " você", "responda", " não ", "solicitação", "usuário")
+
+
+def parece_portugues(texto: str) -> bool:
+    t = f" {texto.lower()} "
+    return any(m in t for m in _MARCAS_PORTUGUES)
 
 # Fornecedor -> (variável da chave, variável do dono)
 VARIAVEIS = {

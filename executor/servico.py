@@ -143,6 +143,11 @@ def executar_lote(selecao: dict[str, list[str]], repeticoes: int = 1, parametros
         log.info("=== Início do lote %s | seleção=%s | repetições=%d | temperatura=%s | max_tokens=%d",
                  lote, selecao, repeticoes, p.temperatura, p.max_tokens)
         selecao, ignorados = _normalizar_selecao(selecao)
+        if "claude_code" in selecao:
+            log.info("System prompt padrão do Claude (assinatura): %r", config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO)
+            if config.parece_portugues(config.CLAUDE_CODE_SYSTEM_PROMPT_PADRAO):
+                log.warning("CLAUDE_CODE_SYSTEM_PROMPT_PADRAO parece estar em português: o modelo tende a "
+                            "responder em português mesmo com prompts em inglês. Ajuste o .env para inglês.")
 
         # 1. planeja a partir da última versão, sem alterá-la
         _, origem = planilha.ultima_versao()

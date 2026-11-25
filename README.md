@@ -84,6 +84,7 @@ O fornecedor `claude_code` (apelidos: `assinatura`, `claude-code`) executa `clau
 - Isolamento: o system prompt padrão do Claude Code (assistente de programação, com diretório, git e CLAUDE.md) é **substituído** pelo da coluna F ou, se vazia, por `CLAUDE_CODE_SYSTEM_PROMPT_PADRAO`. A chamada roda num diretório temporário vazio, sem ferramentas, sem MCP e sem arquivos de configuração. O system prompt efetivamente enviado fica na coluna *System prompt*.
 - Limitações: não há controle de temperatura nem de máximo de tokens; o modelo pode usar raciocínio estendido; o limite de uso é compartilhado com o chat. Registrado na planilha como `Claude (assinatura)`, separado do `Claude` por API.
 - O alias `haiku` pode apontar para uma versão diferente da que você espera (na v00004 respondeu `claude-haiku-4-5-20251001`). Para fixar a versão, use o ID completo do modelo.
+- **Idioma:** todo texto que o executor acrescenta aos prompts (o system prompt padrão do Claude Code e os scripts de verificação) é em inglês. Um system prompt em português fazia o modelo responder em português a prompts em inglês. Se o seu `.env` tiver `CLAUDE_CODE_SYSTEM_PROMPT_PADRAO` em português, troque por `Respond to the user's request.`; o log avisa quando detecta português.
 - **Se não funcionar**, rode `python scripts/diagnostico_claude_code.py` no mesmo terminal/venv do `uvicorn`: ele testa PATH, login, chamada mínima e o comando exato do executor, e para na etapa que falha com a sugestão de correção.
 - Não verifiquei se as condições do plano permitem execuções automatizadas em lote por este caminho; confira antes de usar em larga escala.
 
@@ -129,7 +130,7 @@ python scripts/teste_isolamento.py claude_code:haiku
 python scripts/teste_isolamento.py claude:claude-haiku-5-5 gemini:gemini-3.5-flash-lite openai:gpt-5-mini
 ```
 
-O script pede para o modelo memorizar uma palavra-código aleatória numa chamada e pergunta por ela na seguinte (deve responder "NÃO SEI"), e depois pede que descreva todo o contexto que recebeu, apontando termos do ambiente como repositório, diretório ou CLAUDE.md.
+O script pede para o modelo memorizar uma palavra-código aleatória numa chamada e pergunta por ela na seguinte (deve responder "I DON'T KNOW"), e depois pede que descreva todo o contexto que recebeu, apontando termos do ambiente como repositório, diretório ou CLAUDE.md.
 
 ## Testes
 
